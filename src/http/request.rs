@@ -2,13 +2,15 @@ use std::{collections::HashMap, fmt};
 
 use cookie::CookieJar;
 use hyper::{
-    header::AsHeaderName, http::Extensions, Body as ReqBody, HeaderMap, Method, Uri, Version,
+    header::{AsHeaderName, IntoHeaderName},
+    http::{Extensions, HeaderValue},
+    Body as ReqBody, HeaderMap, Method, Uri, Version,
 };
 use multimap::MultiMap;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
-use crate::addr::SocketAddr;
+use crate::{addr::SocketAddr, serde::from_str_multi_val};
 
 pub struct Request {
     uri: Uri,
@@ -80,5 +82,13 @@ impl Request {
             .iter()
             .filter_map(|v| v.to_str().ok())
             .collect::<Vec<_>>();
+        from_str_multi_val(values).ok()
+    }
+    pub fn add_header<N, V>(&mut self, name: N, value: V, overwrite: bool) -> crate::Result<()>
+    where
+        N: IntoHeaderName,
+        V: TryInto<HeaderValue>,
+    {
+        Ok(())
     }
 }

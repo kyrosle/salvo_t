@@ -30,18 +30,18 @@ pub fn inject<V: Any + Send + Sync>(&mut self, value: V) -> &mut Self {
 ## TestClient
 Test modules wait for request module and response module builded.
 
-## In `Depot` 
+## Depot (src/http/depot.rs)
 data-struct-field:
 ```rust
 map: HashMap<String, Box<dyn Any + Send + Sync>>,
 ```
 
-## sub module `SocketAddr`
+## SocketAddr (src/addr.rs)
 Warping the `std::net::SocketAddr` and make convert
 
 ## Request and Response
 
-### Request module
+### Request (src/http/request.rs)
 use crate (only enum the module not the sub function or struct , enum etc.)
 
 `cookie`
@@ -85,10 +85,10 @@ pub struct Request {
     pub(crate) remote_addr: Option<SocketAddr>,
 }
 ```
-### form module
+### form (src/http/form.rs)
 control the file transport
 
-### serde module
+### serde (src/serde)
 modules:
 
 `serde::de::value::Error` as `ValError`
@@ -152,6 +152,32 @@ macro_rules! forward_vec_parsed_value {
         )*
     }
 }
-
+use serde::de::forward_to_deserialize_any;
 ```
+
+## Error (src/error) 
+use `std::io::Error` as `IoError`
+
+use `serde::de::Error` as `DeError`
+
+use crate `thiserror` for its `#[error("message")]` usage
+
+use crate `multer` : An async parser for multipart/form-data content-type in Rust.
+
+```rust
+// Error is from module error.rs () and http/error.rs (parse_error and status_error)
+pub type Result<T> = std::result::Result<T, Error>;
+```
+
+delay modules `writer` in src/writer
+
+delay module `error` in src/http/error
+
+
+`ParseError` and `StatusError` were impl the trait `Writer` with function:
+```rust
+async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response);
+```
+
+## Writer (src/writer)
 
