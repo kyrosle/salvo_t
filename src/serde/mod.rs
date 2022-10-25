@@ -203,8 +203,9 @@ where
         visitor.visit_newtype_struct(self)
     }
     fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-        where
-            V: Visitor<'de> {
+    where
+        V: Visitor<'de>,
+    {
         visitor.visit_some(self)
     }
     fn deserialize_enum<V>(
@@ -281,4 +282,12 @@ where
 {
     let iter = input.into_iter().map(|v| CowValue(v.into()));
     T::deserialize(VecValue(iter))
+}
+
+pub(crate) fn from_str_val<'de, I, T>(input: I) -> Result<T, ValError>
+where
+    I: Into<Cow<'de, str>>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(CowValue(input.into()))
 }

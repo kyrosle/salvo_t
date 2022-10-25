@@ -66,6 +66,7 @@ pub enum ParseError {
     SerdeJson(#[from] serde_json::error::Error),
 }
 
+// TODO: impl Writer for ParseError
 #[async_trait]
 impl Writer for ParseError {
     async fn write(mut self) {
@@ -73,6 +74,7 @@ impl Writer for ParseError {
     }
 }
 
+// TODO: error - parse error test
 #[cfg(test)]
 mod test {
     use async_trait::async_trait;

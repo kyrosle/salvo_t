@@ -72,6 +72,7 @@ impl fmt::Debug for Depot {
     }
 }
 
+// TODO: depot.rs test mod
 // #[cfg(test)]
 // mod test {
 // }

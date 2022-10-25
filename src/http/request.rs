@@ -1,6 +1,6 @@
 use std::{collections::HashMap, fmt};
 
-use cookie::CookieJar;
+use cookie::{Cookie, CookieJar};
 use hyper::{
     header::{AsHeaderName, IntoHeaderName},
     http::{Extensions, HeaderValue},
@@ -10,7 +10,11 @@ use multimap::MultiMap;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
-use crate::{addr::SocketAddr, serde::from_str_multi_val};
+use crate::http::Mime;
+
+use crate::{addr::SocketAddr, error::Error};
+
+use crate::serde::{from_str_multi_val, from_str_val};
 
 pub struct Request {
     uri: Uri,
@@ -23,6 +27,7 @@ pub struct Request {
 
     // accept: Option<Vec<Mime>>,
     pub(crate) queries: OnceCell<MultiMap<String, String>>,
+    // TODO: request add form_data
     // pub(crate) form_data: tokio::sync::OnceCell<FormData>,
     pub(crate) payload: tokio::sync::OnceCell<Vec<u8>>,
 
@@ -33,11 +38,13 @@ pub struct Request {
 
 impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Request").field("method", self.method())
+        // f.debug_struct("Request").field("method", self.method())
+        Ok(())
     }
 }
 
 impl Request {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Request {
         Request {
             uri: Uri::default(),
@@ -89,6 +96,108 @@ impl Request {
         N: IntoHeaderName,
         V: TryInto<HeaderValue>,
     {
+        let value = value
+            .try_into()
+            .map_err(|_| Error::Other("invalid header value".into()))?;
+
+        if overwrite {
+            self.headers.insert(name, value);
+        } else {
+            self.headers.append(name, value);
+        }
         Ok(())
+    }
+    pub fn with_header<N, V>(
+        &mut self,
+        name: N,
+        value: V,
+        overwrite: bool,
+    ) -> crate::Result<&mut Self>
+    where
+        N: IntoHeaderName,
+        V: TryInto<HeaderValue>,
+    {
+        self.add_header(name, value, overwrite)?;
+        Ok(self)
+    }
+    pub fn body(&self) -> Option<&ReqBody> {
+        self.body.as_ref()
+    }
+    pub fn body_mut(&mut self) -> Option<&mut ReqBody> {
+        self.body.as_mut()
+    }
+    pub fn body_take(&mut self) -> Option<ReqBody> {
+        self.body.take()
+    }
+    pub fn extensions(&self) -> &Extensions {
+        &self.extensions
+    }
+    pub fn extensions_mut(&mut self) -> &mut Extensions {
+        &mut self.extensions
+    }
+    pub fn accept(&self) -> Vec<Mime> {
+        let mut list: Vec<Mime> = vec![];
+        if let Some(accept) = self.headers.get("accept").and_then(|h| h.to_str().ok()) {
+            let parts: Vec<&str> = accept.split(',').collect();
+            for part in parts {
+                if let Ok(mt) = part.parse() {
+                    list.push(mt);
+                }
+            }
+        }
+        list
+    }
+    pub fn first_accept(&self) -> Option<Mime> {
+        let mut accept = self.accept();
+        if !accept.is_empty() {
+            Some(accept.remove(0))
+        } else {
+            None
+        }
+    }
+    pub fn content_type(&self) -> Option<Mime> {
+        self.headers
+            .get("content-type")
+            .and_then(|h| h.to_str().ok())
+            .and_then(|v| v.parse().ok())
+    }
+    pub fn cookies(&self) -> &CookieJar {
+        &self.cookies
+    }
+    pub fn cookies_mut(&mut self) -> &mut CookieJar {
+        &mut self.cookies
+    }
+    pub fn cookie<T>(&self, name: T) -> Option<&Cookie<'static>>
+    where
+        T: AsRef<str>,
+    {
+        self.cookies.get(name.as_ref())
+    }
+    pub fn params(&self) -> &HashMap<String, String> {
+        &self.params
+    }
+    pub fn params_mut(&mut self) -> &mut HashMap<String, String> {
+        &mut self.params
+    }
+    pub fn param<'de, T>(&'de self, key: &str) -> Option<T>
+    where
+        T: Deserialize<'de>,
+    {
+        self.params.get(key).and_then(|v| from_str_val(v).ok())
+    }
+    pub fn queries(&self) -> &MultiMap<String, String> {
+        self.queries.get_or_init(|| {
+            form_urlencoded::parse(self.uri.query().unwrap_or_default().as_bytes())
+                .into_owned()
+                .collect()
+        })
+    }
+    pub fn query<'de, T>(&'de self, key: &str) -> Option<T>
+    where
+        T: Deserialize<'de>,
+    {
+        self.queries()
+            .get_vec(key)
+            .and_then(|vs| from_str_multi_val(vs).ok())
     }
 }

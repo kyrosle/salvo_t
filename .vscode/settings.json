@@ -1,3 +1,10 @@
 {
-  "cSpell.words": ["mulitimap", "multer", "newtype", "serde", "struct"]
+  "cSpell.words": [
+    "mulitimap",
+    "multer",
+    "newtype",
+    "serde",
+    "struct",
+    "thiserror"
+  ]
 }
