@@ -1,0 +1,14 @@
+[package]
+name = "salvo_t"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+cookie = { version = "0.16.1", features = ["percent-encode"] }
+hyper = { version = "0.14", features = ["stream", "server", "http1", "http2", "tcp", "client"] }
+multimap = "0.8.3"
+once_cell = "1.15.0"
+serde = { version = "1.0.147", features = ["derive"] }
+tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread"] }
