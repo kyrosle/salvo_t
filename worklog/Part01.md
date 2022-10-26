@@ -42,6 +42,132 @@ Warping the `std::net::SocketAddr` and make convert
 ### form (src/http/form.rs)
 control the file transport
 
+The extracted text fields and uploaded files from a `multipart/form-data` request.
+
+#### `FormData`
+```rust
+#[derive(Debug)]
+pub struct FormData {
+    /// Name-value pairs for plain text fields. Technically, these are form data parts with no
+    /// filename specified in the part's `Content-Disposition`.
+    pub fields: MultiMap<String, String>,
+    /// Name-value pairs for temporary files. Technically, these are form data parts with a filename
+    /// specified in the part's `Content-Disposition`.
+    pub files: MultiMap<String, FilePart>,
+}
+```
+__main function__ : 
+Parse MIME `multipart/*` information from a stream as a [`FormData`].
+```rust
+[FormData]
+pub(crate) async fn read(headers: &HeaderMap, body: ReqBody) -> Result<FormData, ParseError> {
+    match headers.get(CONTENT_TYPE) {
+        Some(ctype) if ctype == "application/x-www-form-urlencoded" => {
+            let data = hyper::body::to_bytes(body)
+                .await
+                .map(|d| d.to_vec())
+                .map_err(ParseError::Hyper)?;
+            let mut form_data = FormData::new();
+            form_data.fields = form_urlencoded::parse(&data).into_owned().collect();
+            Ok(form_data)
+        },
+        Some(ctype) if ctype.to_str().unwrap_or("").starts_with("multipart/") => {
+            let mut form_data = FormData::new();
+            if let Some(boundary) = headers.get(CONTENT_TYPE)
+            .and_then(|ct|ct.to_str().ok())
+            .and_then(|ct| multer::parse_boundary(ct).ok()) {
+                let mut multipart = Multipart::new(body, boundary);
+                while let Some(mut field) = multipart.next_field().await? {
+                    if let Some(name) = field.name().map(|s|s.to_owned()) {
+                        if field.headers().get(CONTENT_TYPE).is_some() {
+                            form_data.files.insert(name, FilePart::create(&mut field).await?);
+                        } else {
+                            form_data.fields.insert(name, field.text().await?);
+                        }
+                    }
+                }
+            }
+            Ok(form_data)
+        }
+        _ => Err(ParseError::InvalidContentType)
+    }
+}
+```
+
+#### `FilePart`
+__Used modules__ :  
+
+`tempfile`: This crate provides several approaches to creating temporary files and directories.
+
+`textnonce` : Using `TextNonce` , for cryptographic concept of an arbitrary number that is never used more than once.
+
+A file that is to be inserted into a `multipart/*` or alternatively an uploaded file that
+was received as part of `multipart/*` parsing.
+```rust
+#[derive(Clone, Debug)]
+pub struct FilePart {
+    name: Option<String>,
+    /// The headers of the part
+    headers: HeaderMap,
+    /// A temporary file containing the file content
+    path: PathBuf,
+    /// Optionally, the size of the file.  This is filled when multiparts are parsed, but is
+    /// not necessary when they are generated.
+    size: Option<usize>,
+    // The temporary directory the upload was put into, saved for the Drop trait
+    temp_dir: Option<PathBuf>,
+}
+```
+__main function__ : 
+Create a new temporary FilePart 
+(when created this way, the file will be deleted once the FilePart object goes out of scope).
+```rust
+pub async fn create(field: &mut Field<'_>) -> Result<FilePart, ParseError> {
+    let mut path =
+        tokio::task::spawn_blocking(|| Builder::new().prefix("salvo_http_multipart").tempdir())
+            .await
+            .expect("Runtime spawn blocking poll error")?
+            .into_path();
+
+    let temp_dir = Some(path.clone());
+    let name = field.file_name().map(|s| s.to_owned());
+    path.push(format!(
+        "{}.{}",
+        TextNonce::sized_urlsafe(32).unwrap().into_string(),
+        name.as_deref()
+            .and_then(|name| { Path::new(name).extension().and_then(OsStr::to_str) })
+            .unwrap_or("unknown")
+    ));
+    let mut file = File::create(&path).await?;
+    while let Some(chunk) = field.chunk().await? {
+        file.write_all(&chunk).await?;
+    }
+    Ok(FilePart {
+        name,
+        headers: field.headers().to_owned(),
+        path,
+        size: None,
+        temp_dir,
+    })
+}
+```
+If `FilePart` was dropped, clean the file and dir path :
+```rust
+impl Drop for FilePart {
+    fn drop(&mut self) {
+        if let Some(temp_dir) = &self.temp_dir {
+            let path = self.path.clone();
+            let temp_dir = temp_dir.to_owned();
+            tokio::task::spawn_blocking(move || {
+                std::fs::remove_file(&path).ok();
+                std::fs::remove_dir(temp_dir).ok();
+            });
+        }
+    }
+}
+```
+
+
 ---
 ### serde (src/serde)
 modules:
@@ -96,6 +222,7 @@ macro_rules! forward_cow_parsed_value {
         )*
     }
 }
+
 macro_rules! forward_vec_parsed_value {
     ($($ty:ident => $method:ident,)*) => {
         $(
@@ -116,6 +243,106 @@ macro_rules! forward_vec_parsed_value {
 }
 use serde::de::forward_to_deserialize_any;
 ```
+
+Deserialize for request:
+```rust
+pub(crate) struct RequestDeserializer<'de> {
+    params: &'de HashMap<String, String>,
+    queries: &'de MultiMap<String, String>,
+    cookies: &'de cookie::CookieJar,
+    headers: &'de HeaderMap,
+    payload: Option<Payload<'de>>,
+    metadata: &'de Metadata,
+    field_index: isize,
+    field_source: Option<&'de Source>,
+    field_str_value: Option<&'de str>,
+    field_vec_value: Option<Vec<CowValue<'de>>>,
+}
+```
+`Payload` field:
+```rust
+#[derive(Debug, Clone)]
+pub(crate) enum Payload<'a> {
+    FormData(&'a FormData),
+    JsonStr(&'a str),
+    JsonMap(HashMap<&'a str, &'a RawValue>)
+}
+```
+#### `request` 
+For helping `Request` Deserializer.
+##### `Payload`
+```rust
+#[derive(Debug, Clone)]
+pub(crate) enum Payload<'a> {
+    FormData(&'a FormData),
+    JsonStr(&'a str),
+    JsonMap(HashMap<&'a str, &'a RawValue>),
+}
+```
+
+##### `RequestDeserializer`
+data struct:
+
+impl `de::Deserializer` and `de::MapAccess` trait
+
+`de::MapAccess` : 
+
+```rust
+#[derive(Debug)]
+pub(crate) struct RequestDeserializer<'de> {
+    params: &'de HashMap<String, String>,
+    queries: &'de MultiMap<String, String>,
+    cookies: &'de cookie::CookieJar,
+    headers: &'de HeaderMap,
+    payload: Option<Payload<'de>>,
+    metadata: &'de Metadata,
+    field_index: isize,
+    field_source: Option<&'de Source>,
+    field_str_value: Option<&'de str>,
+    field_vec_value: Option<Vec<CowValue<'de>>>,
+}
+```
+main functions:
+
+```rust
+// Construct from Request and Metadata
+pub(crate) fn new(
+    request: &'de mut Request,
+    metadata: &'de Metadata,
+) -> Result<RequestDeserializer<'de>, ParseError> {
+    let mut payload = None;
+    if let Some(ctype) = request.content_type() {
+        match ctype.subtype() {
+            mime::WWW_FORM_URLENCODED | mime::FORM_DATA => {
+                payload = request.form_data.get().map(Payload::FormData);
+            }
+            mime::JSON => {
+                if let Some(data) = request.payload.get() {
+                    payload = match serde_json::from_slice::<HashMap<&str, &RawValue>>(data) {
+                        Ok(map) => Some(Payload::JsonMap(map)),
+                        Err(_) => Some(Payload::JsonStr(std::str::from_utf8(data)?)),
+                    };
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(RequestDeserializer {
+        params: request.params(),
+        queries: request.queries(),
+        cookies: request.cookies(),
+        headers: request.headers(),
+        payload,
+        metadata,
+        field_index: -1,
+        field_source: None,
+        field_str_value: None,
+        field_vec_value: None,
+    })
+}
+```
+
+
 ---
 ### Error (src/error) 
 __Ignoring using cfg(anyhow)__
@@ -249,7 +476,7 @@ pub struct Source {
 ```
 `SourceFrom` and `SourceFormat` both impl the `FromStr` trait
 
-###### SourceFrom
+###### `SourceFrom`
 Source from for a field.
 ```rust
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -271,7 +498,7 @@ pub enum SourceFrom {
 }
 ```
 
-###### SourceFormat
+###### `SourceFormat`
 Source format for a source. This format is just means that field format, not the request mime type.
 
 For example, the request is posted as form, but if the field is string as json format, it can be parsed as json.
@@ -287,6 +514,53 @@ pub enum SourceFormat {
     Request,
 }
 ```
+
+###### `RenameRule`
+Rename rule for a field.
+```rust
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[non_exhaustive]
+pub enum RenameRule {
+    /// Rename direct children to "lowercase" style.
+    LowerCase,
+    /// Rename direct children to "UPPERCASE" style.
+    UpperCase,
+    /// Rename direct children to "PascalCase" style, as typically used for
+    /// enum variants.
+    PascalCase,
+    /// Rename direct children to "camelCase" style.
+    CamelCase,
+    /// Rename direct children to "snake_case" style, as commonly used for
+    /// fields.
+    SnakeCase,
+    /// Rename direct children to "SCREAMING_SNAKE_CASE" style, as commonly
+    /// used for constants.
+    ScreamingSnakeCase,
+    /// Rename direct children to "kebab-case" style.
+    KebabCase,
+    /// Rename direct children to "SCREAMING-KEBAB-CASE" style.
+    ScreamingKebabCase,
+}
+```
+
+###### `Field`
+Information about struct field.
+```rust
+#[derive(Clone, Debug)]
+pub struct Field {
+    /// Field name.
+    pub name: &'static str,
+    /// Field sources.
+    pub sources: Vec<Source>,
+    /// Field aliaes.
+    pub aliases: Vec<&'static str>,
+    /// Field rename.
+    pub rename: Option<&'static str>,
+    /// Field metadata. This is used for nested extractible types.
+    pub metadata: Option<&'static Metadata>,
+}
+```
+
 
 
 ---
@@ -319,6 +593,8 @@ just like the `lazy_static`
 
 `serde` Serializer and Deserializer
 - serde
+
+`serde_json` for its `RawValue`
 
 `form_urlencoded` : Convert a byte string in the `application/x-www-form-urlencoded` syntax into a `iterator` of `(name, value)` pairs (collected as `HashMap` such as).
 - form_urlencoded

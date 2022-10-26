@@ -1,10 +1,15 @@
 {
   "cSpell.words": [
+    "deref",
     "mulitimap",
     "multer",
+    "multiparts",
     "newtype",
     "serde",
     "struct",
-    "thiserror"
+    "tempdir",
+    "thiserror",
+    "urlsafe",
+    "usize"
   ]
 }

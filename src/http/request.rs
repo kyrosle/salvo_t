@@ -4,19 +4,21 @@ use cookie::{Cookie, CookieJar};
 use hyper::{
     header::{AsHeaderName, IntoHeaderName},
     http::{Extensions, HeaderValue},
-    Body as ReqBody, HeaderMap, Method, Uri, Version,
+    HeaderMap, Method, Uri, Version,
 };
 use multimap::MultiMap;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
-use crate::http::Mime;
+use crate::{extract::Extractible, http::Mime};
 
 use crate::{addr::SocketAddr, error::Error};
 
 use crate::serde::{from_str_multi_val, from_str_val};
 
-use super::errors::ParseError;
+use super::{errors::ParseError, form::FormData};
+
+pub use hyper::Body as ReqBody;
 
 pub struct Request {
     uri: Uri,
@@ -29,8 +31,7 @@ pub struct Request {
 
     // accept: Option<Vec<Mime>>,
     pub(crate) queries: OnceCell<MultiMap<String, String>>,
-    // TODO: request add form_data
-    // pub(crate) form_data: tokio::sync::OnceCell<FormData>,
+    pub(crate) form_data: tokio::sync::OnceCell<FormData>,
     pub(crate) payload: tokio::sync::OnceCell<Vec<u8>>,
 
     /// Http protocol version
@@ -57,7 +58,7 @@ impl Request {
             cookies: CookieJar::default(),
             params: HashMap::new(),
             queries: OnceCell::new(),
-            // form_data: tokio::sync::OnceCell::new(),
+            form_data: tokio::sync::OnceCell::new(),
             payload: tokio::sync::OnceCell::new(),
             version: Version::default(),
             remote_addr: None,
@@ -253,9 +254,18 @@ impl Request {
     pub async fn form_data(&mut self) -> Result<(), ParseError> {
         todo!()
     }
-    pub async  fn extract<'de, T>(&'de mut self) -> Result<T, ParseError> 
-    where T: Extractible<'de>
+    pub async fn extract<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Extractible<'de>,
     {
-
+    }
+    pub async fn extract_with_metadata<'de, T>(
+        &'de mut self,
+        metadata: &'de Metadata,
+    ) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        from_request()
     }
 }
