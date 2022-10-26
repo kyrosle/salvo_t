@@ -5,6 +5,7 @@ pub mod test;
 pub mod serde;
 mod error;
 pub mod writer;
+pub mod extract;
 
 
 use crate::error::Error;

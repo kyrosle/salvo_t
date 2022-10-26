@@ -16,6 +16,8 @@ use crate::{addr::SocketAddr, error::Error};
 
 use crate::serde::{from_str_multi_val, from_str_val};
 
+use super::errors::ParseError;
+
 pub struct Request {
     uri: Uri,
     headers: HeaderMap,
@@ -199,5 +201,61 @@ impl Request {
         self.queries()
             .get_vec(key)
             .and_then(|vs| from_str_multi_val(vs).ok())
+    }
+    pub async fn form<'de, T>(&'de self, key: &str) -> Option<T>
+    where
+        T: Deserialize<'de>,
+    {
+        todo!()
+    }
+    pub async fn form_or_query<'de, T>(&'de self, key: &str) -> Option<T>
+    where
+        T: Deserialize<'de>,
+    {
+        todo!()
+    }
+    pub async fn query_or_form<'de, T>(&'de mut self, key: &str) -> Option<T>
+    where
+        T: Deserialize<'de>,
+    {
+        todo!()
+    }
+    pub async fn file<'a>(&'a mut self, key: &'a str) -> Option<&'a str> {
+        todo!()
+    }
+    pub async fn fist_file(&mut self) -> Option<()> {
+        // &FilePart
+        todo!()
+    }
+    pub async fn files<'a>(&'a mut self, key: &'a str) -> Option<()> {
+        // &'a Vec<FilePart>
+        todo!()
+    }
+    pub async fn all_files(&mut self) -> Vec<()> {
+        // &FilePart
+        todo!()
+    }
+    pub async fn payload(&mut self) -> Result<&Vec<u8>, ParseError> {
+        let body = self.body.take();
+        self.payload
+            .get_or_try_init(|| async {
+                match body {
+                    Some(body) => hyper::body::to_bytes(body)
+                        .await
+                        .map(|d| d.to_vec())
+                        .map_err(ParseError::Hyper),
+                    None => Err(ParseError::EmptyBody),
+                }
+            })
+            .await
+    }
+    // &FormData
+    pub async fn form_data(&mut self) -> Result<(), ParseError> {
+        todo!()
+    }
+    pub async  fn extract<'de, T>(&'de mut self) -> Result<T, ParseError> 
+    where T: Extractible<'de>
+    {
+
     }
 }

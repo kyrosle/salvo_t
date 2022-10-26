@@ -216,6 +216,79 @@ macro_rules! default_errors {
 ### Writer (src/writer)
 A trait is able to write the `ParseError` or `StatusError` into the `Response` part.
 
+### extract (src/extract)
+let you deserialize request to custom type
+
+#### metadata (src/extract/metadata)
+data struct:
+```rust
+/// Struct's metadata information.
+#[derive(Clone, Debug)]
+pub struct Metadata {
+    /// The name of this type.
+    pub name: &'static str,
+    /// Default sources of all fields.
+    pub default_sources: Vec<Source>,
+    /// Fields of this type.
+    pub fields: Vec<Field>,
+    /// Rename rule for all fields of this type.
+    pub rename_all: Option<RenameRule>,
+}
+```
+---
+##### Source
+```rust
+/// Request source for extract data.
+#[derive(Copy, Clone, Debug)]
+pub struct Source {
+    /// The source from.
+    pub from: SourceFrom,
+    /// the origin data format of the field.
+    pub format: SourceFormat,
+}
+```
+`SourceFrom` and `SourceFormat` both impl the `FromStr` trait
+
+###### SourceFrom
+Source from for a field.
+```rust
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum SourceFrom {
+    /// The field will extracted from url param.
+    Param,
+    /// The field will extracted from url query.
+    Query,
+    /// The field will extracted from http header.
+    Header,
+    /// The field will extracted from http cookie.
+    #[cfg(feature = "cookie")]
+    Cookie,
+    /// The field will extracted from http payload.
+    Body,
+    /// The field will extracted from request.
+    Request,
+}
+```
+
+###### SourceFormat
+Source format for a source. This format is just means that field format, not the request mime type.
+
+For example, the request is posted as form, but if the field is string as json format, it can be parsed as json.
+```rust
+#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum SourceFormat {
+    /// MulitMap format. This is the default.
+    MultiMap,
+    /// Json format.
+    Json,
+    /// Request format means this field will extract from the request.
+    Request,
+}
+```
+
+
 ---
 ### Request (src/http/request.rs)
 use crate (only enum the module not the sub function or struct , enum etc.)
