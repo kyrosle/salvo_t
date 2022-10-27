@@ -9,7 +9,7 @@ use serde::de::value::Error as ValError;
 use serde::de::{self, Deserialize, Error as DeError, IntoDeserializer};
 use serde::forward_to_deserialize_any;
 
-use crate::extract::{SourceFrom, SourceFormat};
+use crate::extract::{SourceFormat, SourceFrom};
 use crate::{
     extract::{Metadata, Source},
     http::{errors::ParseError, form::FormData, request::Request},
@@ -75,16 +75,27 @@ impl<'de> RequestDeserializer<'de> {
     }
 
     fn deserialize_value<T>(&mut self, seed: T) -> Result<T::Value, ValError>
-    where T: de::DeserializeSeed<'de>
+    where
+        T: de::DeserializeSeed<'de>,
     {
-        let source = self.field_source.take().expect("MapAccess::next_value called before next_key");
+        let source = self
+            .field_source
+            .take()
+            .expect("MapAccess::next_value called before next_key");
 
         if source.from == SourceFrom::Body && source.format == SourceFormat::Json {
-            let value = self.field_str_value.expect("MapAccess::next_value called before next_key");
+            let value = self
+                .field_str_value
+                .expect("MapAccess::next_value called before next_key");
             let mut value = serde_json::Deserializer::new(serde_json::de::StrRead::new(value));
-            seed.deserialize(&mut value).map_err(|_| ValError::custom("pare value error"))
+            seed.deserialize(&mut value)
+                .map_err(|_| ValError::custom("pare value error"))
         } else if source.from == SourceFrom::Request {
-            let field = self.metadata.fields.get(self.field_index as usize) .expect("Field must exist");
+            let field = self
+                .metadata
+                .fields
+                .get(self.field_index as usize)
+                .expect("Field must exist");
             let metadata = field.metadata.expect("Field's metadata must exist");
             seed.deserialize(RequestDeserializer {
                 params: self.params,
@@ -108,9 +119,9 @@ impl<'de> RequestDeserializer<'de> {
     }
 
     fn next(&mut self) -> Option<Cow<'_, str>> {
-        if self.field_index < self.metadata.fields.len() as isize -1 {
+        if self.field_index < self.metadata.fields.len() as isize - 1 {
             self.field_index += 1;
-            let field = &self.metadata.fields[self.field_index as usize]; 
+            let field = &self.metadata.fields[self.field_index as usize];
             let sources = if !field.sources.is_empty() {
                 &field.sources
             } else if !self.metadata.default_source.is_empty() {
@@ -146,7 +157,7 @@ impl<'de> RequestDeserializer<'de> {
                     SourceFrom::Param => {
                         let mut value = self.params.get(&*field.name);
                         if value.is_none() {
-                            for alias in  &field.aliases {
+                            for alias in &field.aliases {
                                 value = self.params.get(*alias);
                                 if value.is_some() {
                                     break;
@@ -160,17 +171,18 @@ impl<'de> RequestDeserializer<'de> {
                         }
                     }
                     SourceFrom::Query => {
-                        let mut value = self.queries.get_vec(field.name.as_ref());
+                        let mut value = self.queries.get_vec(field_name.as_ref());
                         if value.is_none() {
                             for alias in &field.aliases {
-                                value = if self.queries.get_vec(*alias);
+                                value = self.queries.get_vec(*alias);
                                 if value.is_some() {
                                     break;
                                 }
                             }
                         }
                         if let Some(value) = value {
-                            self.field_vec_value = Some(value.iter().map(|v| CowValue(v.into())).collect());
+                            self.field_vec_value =
+                                Some(value.iter().map(|v| CowValue(v.into())).collect());
                             self.field_source = Some(source);
                             return Some(Cow::from(field.name));
                         }
@@ -178,7 +190,7 @@ impl<'de> RequestDeserializer<'de> {
                     SourceFrom::Header => {
                         let mut value = None;
                         if self.headers.contains_key(field_name.as_ref()) {
-                            value = Some(self.headers.get_all(field.name.as_ref()));
+                            value = Some(self.headers.get_all(field_name.as_ref()));
                         } else {
                             for alias in &field.aliases {
                                 if self.headers.contains_key(*alias) {
@@ -188,9 +200,14 @@ impl<'de> RequestDeserializer<'de> {
                             }
                         };
                         if let Some(value) = value {
-                            self.field_vec_value = Some(value.iter().map(|v| CowValue(Cow::from(v.to_str().unwrap_or_default()))).collect());
+                            self.field_vec_value = Some(
+                                value
+                                    .iter()
+                                    .map(|v| CowValue(Cow::from(v.to_str().unwrap_or_default())))
+                                    .collect(),
+                            );
                             self.field_source = Some(source);
-                            return Some(Cow::from(field.name))
+                            return Some(Cow::from(field.name));
                         }
                     }
                     SourceFrom::Cookie => {
@@ -229,7 +246,7 @@ impl<'de> RequestDeserializer<'de> {
                                             self.field_str_value = Some(value);
                                             self.field_source = Some(source);
                                             return Some(Cow::from(field.name));
-                                        }else {
+                                        } else {
                                             return None;
                                         }
                                     }
@@ -273,7 +290,9 @@ impl<'de> RequestDeserializer<'de> {
                                     }
                                 }
                                 if let Some(value) = value {
-                                    self.field_vec_value = Some(value.iter().map(|v| CowValue(Cow::from(v))).collect());
+                                    self.field_vec_value = Some(
+                                        value.iter().map(|v| CowValue(Cow::from(v))).collect(),
+                                    );
                                     self.field_source = Some(source);
                                     return Some(Cow::from(field.name));
                                 } else {
@@ -286,7 +305,7 @@ impl<'de> RequestDeserializer<'de> {
                         _ => {
                             panic!("Unsupported source format: {:?}", source.format);
                         }
-                    }
+                    },
                 }
             }
         }
@@ -297,13 +316,15 @@ impl<'de> RequestDeserializer<'de> {
 impl<'de> de::Deserializer<'de> for RequestDeserializer<'de> {
     type Error = ValError;
     fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
-        where
-            V: de::Visitor<'de> {
+    where
+        V: de::Visitor<'de>,
+    {
         self.deserialize_any(visitor)
     }
     fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
-        where
-            V: de::Visitor<'de> {
+    where
+        V: de::Visitor<'de>,
+    {
         self.deserialize_seq(visitor)
     }
     forward_to_deserialize_any! {
@@ -311,7 +332,6 @@ impl<'de> de::Deserializer<'de> for RequestDeserializer<'de> {
         bytes byte_buf option unit unit_struct newtype_struct tuple_struct map seq
         struct enum identifier ignored_any
     }
-
 }
 
 impl<'de> de::MapAccess<'de> for RequestDeserializer<'de> {
@@ -319,14 +339,19 @@ impl<'de> de::MapAccess<'de> for RequestDeserializer<'de> {
 
     fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
     where
-        K: de::DeserializeSeed<'de> {
-            match self.next()
+        K: de::DeserializeSeed<'de>,
+    {
+        match self.next() {
+            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
+            None => Ok(None),
+        }
     }
 
     fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
     where
-        V: de::DeserializeSeed<'de> {
-        todo!()
+        V: de::DeserializeSeed<'de>,
+    {
+        self.deserialize_value(seed)
     }
 }
 

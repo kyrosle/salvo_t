@@ -10,13 +10,20 @@ use multimap::MultiMap;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 
-use crate::{extract::Extractible, http::Mime};
+use crate::{
+    extract::{Extractible, Metadata},
+    http::Mime,
+    serde::{from_str_map, from_str_multi_map, request::from_request},
+};
 
 use crate::{addr::SocketAddr, error::Error};
 
 use crate::serde::{from_str_multi_val, from_str_val};
 
-use super::{errors::ParseError, form::FormData};
+use super::{
+    errors::ParseError,
+    form::{FilePart, FormData},
+};
 
 pub use hyper::Body as ReqBody;
 
@@ -224,16 +231,13 @@ impl Request {
     pub async fn file<'a>(&'a mut self, key: &'a str) -> Option<&'a str> {
         todo!()
     }
-    pub async fn fist_file(&mut self) -> Option<()> {
-        // &FilePart
+    pub async fn fist_file(&mut self) -> Option<&FilePart> {
         todo!()
     }
-    pub async fn files<'a>(&'a mut self, key: &'a str) -> Option<()> {
-        // &'a Vec<FilePart>
+    pub async fn files<'a>(&'a mut self, key: &'a str) -> Option<&'a Vec<FilePart>> {
         todo!()
     }
-    pub async fn all_files(&mut self) -> Vec<()> {
-        // &FilePart
+    pub async fn all_files(&mut self) -> Vec<&FilePart> {
         todo!()
     }
     pub async fn payload(&mut self) -> Result<&Vec<u8>, ParseError> {
@@ -250,14 +254,14 @@ impl Request {
             })
             .await
     }
-    // &FormData
-    pub async fn form_data(&mut self) -> Result<(), ParseError> {
+    pub async fn form_data(&mut self) -> Result<&FormData, ParseError> {
         todo!()
     }
     pub async fn extract<'de, T>(&'de mut self) -> Result<T, ParseError>
     where
         T: Extractible<'de>,
     {
+        self.extract_with_metadata(T::metadata()).await
     }
     pub async fn extract_with_metadata<'de, T>(
         &'de mut self,
@@ -266,6 +270,83 @@ impl Request {
     where
         T: Deserialize<'de>,
     {
-        from_request()
+        from_request(self, metadata).await
     }
+    pub fn parse_params<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        let params = self.params().iter();
+        from_str_map(params).map_err(ParseError::Deserialize)
+    }
+    pub fn parse_queries<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        let queries = self.queries().iter_all();
+        from_str_multi_map(queries).map_err(ParseError::Deserialize)
+    }
+    pub fn parse_headers<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        let iter = self
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.to_str().unwrap_or_default()));
+        from_str_map(iter).map_err(ParseError::Deserialize)
+    }
+    pub fn parse_cookies<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        let iter = self.cookies().iter().map(|c| c.name_value());
+        from_str_map(iter).map_err(ParseError::Deserialize)
+    }
+    pub async fn parse_json<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        if let Some(ctype) = self.content_type() {
+            if ctype.subtype() == mime::JSON {
+                return self.payload().await.and_then(|payload| {
+                    serde_json::from_slice(payload).map_err(ParseError::SerdeJson)
+                });
+            }
+        }
+        Err(ParseError::InvalidContentType)
+    }
+    pub async fn parse_form<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        if let Some(ctype) = self.content_type() {
+            if ctype.subtype() == mime::WWW_FORM_URLENCODED || ctype.subtype() == mime::FORM_DATA {
+                return from_str_multi_map(self.form_data().await?.fields.iter_all())
+                    .map_err(ParseError::Deserialize);
+            }
+        }
+        Err(ParseError::InvalidContentType)
+    }
+    pub async fn parse_body<'de, T>(&'de mut self) -> Result<T, ParseError>
+    where
+        T: Deserialize<'de>,
+    {
+        if let Some(ctype) = self.content_type() {
+            if ctype.subtype() == mime::WWW_FORM_URLENCODED || ctype.subtype() == mime::FORM_DATA {
+                return from_str_multi_map(self.form_data().await?.fields.iter_all())
+                    .map_err(ParseError::Deserialize);
+            } else if ctype.subtype() == mime::JSON {
+                return self
+                    .payload()
+                    .await
+                    .and_then(|body| serde_json::from_slice(body).map_err(ParseError::SerdeJson));
+            }
+        }
+        Err(ParseError::InvalidContentType)
+    }
+}
+// TODO: Request module test
+#[cfg(test)]
+mod tests {
 }

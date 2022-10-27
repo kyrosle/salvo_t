@@ -185,7 +185,21 @@ Having function:
 - `C`:`Into<Cow<'de, str>> + std::cmp::Eq + 'de`
 
 `from_str_val(I)` 
-- I:`Into<Cow<'de, str>>` 
+- `I`:`Into<Cow<'de, str>>` 
+
+`from_str_map(I)`
+- `I`: `IntoIterator<Item = (K, V)> + 'de`,
+- `T`: `Deserialize<'de>`,
+- `K`: `Into<Cow<'de, str>>`,
+- `V`: `Into<Cow<'de, str>>`,
+
+`from_str_multi_map(I)`
+- `I`: `IntoIterator<Item = (K, C)> + 'de`,
+- `T`: `Deserialize<'de>`,
+- `K`: `Into<Cow<'de, str>> + Hash + std::cmp::Eq + 'de`,
+- `C`: `IntoIterator<Item = V> + 'de`,
+- `V`: `Into<Cow<'de, str>> + std::cmp::Eq + 'de`,
+
 
 ```rust
 // impl `IntoDeserializer` trait
@@ -285,7 +299,7 @@ data struct:
 
 impl `de::Deserializer` and `de::MapAccess` trait
 
-`de::MapAccess` : 
+`de::MapAccess` : Provides a Visitor access to each entry of a map in the input.
 
 ```rust
 #[derive(Debug)]
@@ -306,6 +320,7 @@ main functions:
 
 ```rust
 // Construct from Request and Metadata
+[RequestDeserializer]
 pub(crate) fn new(
     request: &'de mut Request,
     metadata: &'de Metadata,
@@ -342,6 +357,7 @@ pub(crate) fn new(
 }
 ```
 ```rust
+[RequestDeserializer]
 fn deserialize_value<T>(&mut self, seed: T) -> Result<T::Value, ValError>
 where T: de::DeserializeSeed<'de>
 {
@@ -377,6 +393,7 @@ where T: de::DeserializeSeed<'de>
 ```
 
 ```rust
+[RequestDeserializer]
 fn next(&mut self) -> Option<Cow<'_, str>> {
     if self.field_index < self.metadata.fields.len() as isize -1 {
         self.field_index += 1;

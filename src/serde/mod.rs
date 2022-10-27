@@ -1,20 +1,14 @@
-mod request;
-use std::{borrow::Cow, collections::HashMap};
-
-use serde_json::value::RawValue;
-
-use hyper::HeaderMap;
-use multimap::MultiMap;
+pub mod request;
+use core::hash::Hash;
 pub(crate) use serde::de::value::Error as ValError;
 use serde::{
     de::{
-        value::SeqDeserializer, EnumAccess, Error as DeError, IntoDeserializer, VariantAccess,
+        value::{SeqDeserializer, MapDeserializer}, EnumAccess, Error as DeError, IntoDeserializer, VariantAccess,
         Visitor,
     },
     forward_to_deserialize_any, Deserialize, Deserializer,
 };
-
-use crate::{http::{errors::ParseError, request::Request, form::FormData}, extract::{Metadata, Source}};
+use std::borrow::Cow;
 
 macro_rules! forward_cow_parsed_value {
     ($($ty:ident => $method:ident,)*) => {
@@ -298,4 +292,32 @@ where
     T: Deserialize<'de>,
 {
     T::deserialize(CowValue(input.into()))
+}
+
+pub(crate) fn from_str_map<'de, I, T, K, V>(input: I) -> Result<T, ValError>
+where
+    I: IntoIterator<Item = (K, V)> + 'de,
+    T: Deserialize<'de>,
+    K: Into<Cow<'de, str>>,
+    V: Into<Cow<'de, str>>,
+{
+    let iter = input.into_iter().map(|(k, v)| CowValue(v.into()));
+    T::deserialize(VecValue(iter))
+}
+
+pub(crate) fn from_str_multi_map<'de, I, T, K, C, V>(input: I) -> Result<T, ValError>
+where
+    I: IntoIterator<Item = (K, C)> + 'de,
+    T: Deserialize<'de>,
+    K: Into<Cow<'de, str>> + Hash + std::cmp::Eq + 'de,
+    C: IntoIterator<Item = V> + 'de,
+    V: Into<Cow<'de, str>> + std::cmp::Eq + 'de,
+{
+    let iter = input.into_iter().map(|(k, v): (K, C)| {
+        (
+            CowValue(k.into()),
+            VecValue(v.into_iter().map(|v: V| CowValue(v.into()))),
+        )
+    });
+    T::deserialize(MapDeserializer::new(iter))
 }
