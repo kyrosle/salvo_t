@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt};
 
 use cookie::{Cookie, CookieJar};
 use hyper::{
-    header::{AsHeaderName, IntoHeaderName},
+    header::{self, AsHeaderName, IntoHeaderName},
     http::{Extensions, HeaderValue},
     HeaderMap, Method, Uri, Version,
 };
@@ -210,35 +210,59 @@ impl Request {
             .get_vec(key)
             .and_then(|vs| from_str_multi_val(vs).ok())
     }
-    pub async fn form<'de, T>(&'de self, key: &str) -> Option<T>
+    pub async fn form<'de, T>(&'de mut self, key: &str) -> Option<T>
     where
         T: Deserialize<'de>,
     {
-        todo!()
+        self.form_data()
+            .await
+            .ok()
+            .and_then(|ps| ps.fields.get_vec(key))
+            .and_then(|vs| from_str_multi_val(vs).ok())
     }
-    pub async fn form_or_query<'de, T>(&'de self, key: &str) -> Option<T>
+    pub async fn form_or_query<'de, T>(&'de mut self, key: &str) -> Option<T>
     where
         T: Deserialize<'de>,
     {
-        todo!()
+        if let Ok(form_data) = self.form_data().await {
+            if form_data.fields.contains_key(key) {
+                return self.form(key).await;
+            }
+        }
+        self.query(key)
     }
     pub async fn query_or_form<'de, T>(&'de mut self, key: &str) -> Option<T>
     where
         T: Deserialize<'de>,
     {
-        todo!()
+        if self.queries().contains_key(key) {
+            self.query(key)
+        } else {
+            self.form(key).await
+        }
     }
-    pub async fn file<'a>(&'a mut self, key: &'a str) -> Option<&'a str> {
-        todo!()
+    pub async fn file<'a>(&'a mut self, key: &'a str) -> Option<&'a FilePart> {
+        self.form_data().await.ok().and_then(|ps| ps.files.get(key))
     }
     pub async fn fist_file(&mut self) -> Option<&FilePart> {
-        todo!()
+        self.form_data()
+            .await
+            .ok()
+            .and_then(|ps| ps.files.iter().next())
+            .map(|(_, f)| f)
     }
     pub async fn files<'a>(&'a mut self, key: &'a str) -> Option<&'a Vec<FilePart>> {
-        todo!()
+        self.form_data()
+            .await
+            .ok()
+            .and_then(|ps| ps.files.get_vec(key))
     }
     pub async fn all_files(&mut self) -> Vec<&FilePart> {
-        todo!()
+        self.form_data()
+            .await
+            .ok()
+            .map(|ps| ps.files.iter().map(|(_, f)| f).collect())
+            .unwrap_or_default()
     }
     pub async fn payload(&mut self) -> Result<&Vec<u8>, ParseError> {
         let body = self.body.take();
@@ -255,7 +279,26 @@ impl Request {
             .await
     }
     pub async fn form_data(&mut self) -> Result<&FormData, ParseError> {
-        todo!()
+        let ctype = self
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+
+        if ctype == "application/x-www-form-urlencoded" || ctype.starts_with("multipart/") {
+            let body = self.body.take();
+            let headers = self.headers();
+            self.form_data
+                .get_or_try_init(|| async {
+                    match body {
+                        Some(body) => FormData::read(headers, body).await,
+                        None => Err(ParseError::EmptyBody),
+                    }
+                })
+                .await
+        } else {
+            Err(ParseError::NotFormData)
+        }
     }
     pub async fn extract<'de, T>(&'de mut self) -> Result<T, ParseError>
     where
@@ -348,5 +391,4 @@ impl Request {
 }
 // TODO: Request module test
 #[cfg(test)]
-mod tests {
-}
+mod tests {}

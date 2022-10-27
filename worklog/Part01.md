@@ -1,5 +1,5 @@
 # Part 01
-`tokio` with features `macros` for `tokio::test` etc., rt-multi-thread
+`tokio` with features `macros` for `tokio::test` etc., `rt-multi-thread` 
 
 At first, I suggest the base call function like this as follow and start from here.
 ```rust
@@ -31,7 +31,10 @@ Test modules wait for request module and response module builded.
 ## Depot (src/http/depot.rs)
 data-struct-field:
 ```rust
-map: HashMap<String, Box<dyn Any + Send + Sync>>,
+#[derive(Default)]
+pub struct Depot {
+    map: HashMap<String, Box<dyn Any + Send + Sync>>,
+}
 ```
 ---
 ## SocketAddr (src/addr.rs)
@@ -43,6 +46,79 @@ Warping the `std::net::SocketAddr` and make convert
 control the file transport
 
 The extracted text fields and uploaded files from a `multipart/form-data` request.
+
+#### `FilePart`
+__Used modules__ :  
+
+`tempfile`: This crate provides several approaches to creating temporary files and directories.
+
+`textnonce` : Using `TextNonce` , for cryptographic concept of an arbitrary number that is never used more than once.
+
+A file that is to be inserted into a `multipart/*` or alternatively an uploaded file that
+was received as part of `multipart/*` parsing.
+```rust
+#[derive(Clone, Debug)]
+pub struct FilePart {
+    name: Option<String>,
+    /// The headers of the part
+    headers: HeaderMap,
+    /// A temporary file containing the file content
+    path: PathBuf,
+    /// Optionally, the size of the file.  This is filled when multiparts are parsed, but is
+    /// not necessary when they are generated.
+    size: Option<usize>,
+    // The temporary directory the upload was put into, saved for the Drop trait
+    temp_dir: Option<PathBuf>,
+}
+```
+__main function__ : 
+Create a new temporary FilePart 
+(when created this way, the file will be deleted once the FilePart object goes out of scope).
+```rust
+pub async fn create(field: &mut Field<'_>) -> Result<FilePart, ParseError> {
+    let mut path =
+        tokio::task::spawn_blocking(|| [tempfile]Builder::new().prefix("salvo_http_multipart").tempdir())
+            .await
+            .expect("Runtime spawn blocking poll error")?
+            .into_path();
+
+    let temp_dir = Some(path.clone());
+    let name = field.file_name().map(|s| s.to_owned());
+    path.push(format!(
+        "{}.{}",
+        TextNonce::sized_urlsafe(32).unwrap().into_string(),
+        name.as_deref()
+            .and_then(|name| { Path::new(name).extension().and_then(OsStr::to_str) })
+            .unwrap_or("unknown")
+    ));
+    let mut file = File::create(&path).await?;
+    while let Some(chunk) = field.chunk().await? {
+        file.write_all(&chunk).await?;
+    }
+    Ok(FilePart {
+        name,
+        headers: field.headers().to_owned(),
+        path,
+        size: None,
+        temp_dir,
+    })
+}
+```
+If `FilePart` was dropped, clean the file and dir path :
+```rust
+impl Drop for FilePart {
+    fn drop(&mut self) {
+        if let Some(temp_dir) = &self.temp_dir {
+            let path = self.path.clone();
+            let temp_dir = temp_dir.to_owned();
+            tokio::task::spawn_blocking(move || {
+                std::fs::remove_file(&path).ok();
+                std::fs::remove_dir(temp_dir).ok();
+            });
+        }
+    }
+}
+```
 
 #### `FormData`
 ```rust
@@ -94,78 +170,6 @@ pub(crate) async fn read(headers: &HeaderMap, body: ReqBody) -> Result<FormData,
 }
 ```
 
-#### `FilePart`
-__Used modules__ :  
-
-`tempfile`: This crate provides several approaches to creating temporary files and directories.
-
-`textnonce` : Using `TextNonce` , for cryptographic concept of an arbitrary number that is never used more than once.
-
-A file that is to be inserted into a `multipart/*` or alternatively an uploaded file that
-was received as part of `multipart/*` parsing.
-```rust
-#[derive(Clone, Debug)]
-pub struct FilePart {
-    name: Option<String>,
-    /// The headers of the part
-    headers: HeaderMap,
-    /// A temporary file containing the file content
-    path: PathBuf,
-    /// Optionally, the size of the file.  This is filled when multiparts are parsed, but is
-    /// not necessary when they are generated.
-    size: Option<usize>,
-    // The temporary directory the upload was put into, saved for the Drop trait
-    temp_dir: Option<PathBuf>,
-}
-```
-__main function__ : 
-Create a new temporary FilePart 
-(when created this way, the file will be deleted once the FilePart object goes out of scope).
-```rust
-pub async fn create(field: &mut Field<'_>) -> Result<FilePart, ParseError> {
-    let mut path =
-        tokio::task::spawn_blocking(|| Builder::new().prefix("salvo_http_multipart").tempdir())
-            .await
-            .expect("Runtime spawn blocking poll error")?
-            .into_path();
-
-    let temp_dir = Some(path.clone());
-    let name = field.file_name().map(|s| s.to_owned());
-    path.push(format!(
-        "{}.{}",
-        TextNonce::sized_urlsafe(32).unwrap().into_string(),
-        name.as_deref()
-            .and_then(|name| { Path::new(name).extension().and_then(OsStr::to_str) })
-            .unwrap_or("unknown")
-    ));
-    let mut file = File::create(&path).await?;
-    while let Some(chunk) = field.chunk().await? {
-        file.write_all(&chunk).await?;
-    }
-    Ok(FilePart {
-        name,
-        headers: field.headers().to_owned(),
-        path,
-        size: None,
-        temp_dir,
-    })
-}
-```
-If `FilePart` was dropped, clean the file and dir path :
-```rust
-impl Drop for FilePart {
-    fn drop(&mut self) {
-        if let Some(temp_dir) = &self.temp_dir {
-            let path = self.path.clone();
-            let temp_dir = temp_dir.to_owned();
-            tokio::task::spawn_blocking(move || {
-                std::fs::remove_file(&path).ok();
-                std::fs::remove_dir(temp_dir).ok();
-            });
-        }
-    }
-}
-```
 
 
 ---
@@ -859,7 +863,7 @@ pub struct Request {
     method: Method,
     // accept: Option<Vec<Mime>>,
     pub(crate) queries: OnceCell<MultiMap<String, String>>,
-    // pub(crate) form_data: tokio::sync::OnceCell<FormData>,
+    pub(crate) form_data: tokio::sync::OnceCell<FormData>,
     pub(crate) payload: tokio::sync::OnceCell<Vec<u8>>,
 
     version: Version,
@@ -867,6 +871,43 @@ pub struct Request {
 }
 ```
 
-In Request implementation:
+__functions__ :
+
+Read field with `T(take)`, `&T(&)`, `&mut T(&mut)` types functions.
+
+`from_data(&mut self) -> Result<&FormData, ParseError>` :
+read from `self.headers` get the `content_type` as `ctype`
+and then match the `ctype` 
+to construct the `FormData` with the `body` in `self.form_data`.
+
+`file<'a>(&'a mut self, key: &'a str) -> Option<'a FilePart>` : 
+read file data from the `self.form_data`.
+
+`payload(&mut self) -> Result<&Vec<u8>, ParseError>` : 
+read from body like `json` etc.
+
+`extract_with_metadata<'de, T>(&'de mut self, metadata: &'de Metadata) -> Result<T, ParseError>` : 
+use `from_request(self, metadata)` to get from `self.form_data` and `self.payload()`. 
+
+Parsing Self Value
 
 `pub fn accept(&self) -> Vec<Mime>` Get Accept
+
+---
+### Response (src/http/response.rs)
+
+Response body type.
+```rust
+#[allow(clippy::type_complexity)]
+#[non_exhaustive]
+pub enum ResBody {
+    /// None body.
+    None,
+    /// Once bytes body.
+    Once(Bytes),
+    /// Chunks body.
+    Chunks(VecDeque<Bytes>),
+    /// Stream body.
+    Stream(Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>>),
+}
+```
