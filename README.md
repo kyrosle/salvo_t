@@ -6,4 +6,4 @@ This project just for me to learn a web framework which written in `rust`. Loggi
 
 working-log are in the ./worklog/* 
 
-[Part01] [](./worklog/Part01.md)
+[Part01](./worklog/Part01.md)

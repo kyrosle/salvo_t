@@ -1,5 +1,7 @@
+use cruet::Inflector;
+
 use self::RenameRule::*;
-use std::{ops::Deref, str::FromStr};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Eq, PartialEq, Copy)]
 #[non_exhaustive]
@@ -73,6 +75,23 @@ impl FromStr for SourceFormat {
         }
     }
 }
+
+impl RenameRule {
+    pub fn rename(&self, name: impl AsRef<str>) -> String {
+        let name = name.as_ref();
+        match *self {
+            PascalCase => name.to_pascal_case(),
+            LowerCase => name.to_lowercase(),
+            UpperCase => name.to_uppercase(),
+            CamelCase => name.to_camel_case(),
+            SnakeCase => name.to_snake_case(),
+            ScreamingSnakeCase => SnakeCase.rename(name).to_ascii_uppercase(),
+            KebabCase => SnakeCase.rename(name).replace('_', "-"),
+            ScreamingKebabCase => ScreamingSnakeCase.rename(name).replace('_', "-"),
+        }
+    }
+}
+
 static RENAME_RULES: &[(&str, RenameRule)] = &[
     ("lowercase", LowerCase),
     ("UPPERCASE", UpperCase),

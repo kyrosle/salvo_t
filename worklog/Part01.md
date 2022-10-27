@@ -9,8 +9,8 @@ Base function modules:
 - depot.rs `Depot`
 - request.rs `Request`
 - response.rs `Response`
+
 ---
-## Delay Trait
 `Any` : A trait to emulate dynamic typing.
 ```rust
 pub fn inject<V: Any + Send + Sync>(&mut self, value: V) -> &mut Self {
@@ -341,7 +341,229 @@ pub(crate) fn new(
     })
 }
 ```
+```rust
+fn deserialize_value<T>(&mut self, seed: T) -> Result<T::Value, ValError>
+where T: de::DeserializeSeed<'de>
+{
+    let source = self.field_source.take().expect("MapAccess::next_value called before next_key");
 
+    if source.from == SourceFrom::Body && source.format == SourceFormat::Json {
+        let value = self.field_str_value.expect("MapAccess::next_value called before next_key");
+        let mut value = serde_json::Deserializer::new(serde_json::de::StrRead::new(value));
+        seed.deserialize(&mut value).map_err(|_| ValError::custom("pare value error"))
+    } else if source.from == SourceFrom::Request {
+        let field = self.metadata.fields.get(self.field_index as usize) .expect("Field must exist");
+        let metadata = field.metadata.expect("Field's metadata must exist");
+        seed.deserialize(RequestDeserializer {
+            params: self.params,
+            queries: self.queries,
+            headers: self.headers,
+            cookies: self.cookies,
+            payload: self.payload.clone(),
+            metadata,
+            field_index: -1,
+            field_source: None,
+            field_str_value: None,
+            field_vec_value: None,
+        })
+    } else if let Some(value) = self.field_str_value.take() {
+        seed.deserialize(CowValue(value.into()))
+    } else if let Some(value) = self.field_vec_value.take() {
+        seed.deserialize(VecValue(value.into_iter()))
+    } else {
+        Err(ValError::custom("parse value error"))
+    }
+}
+```
+
+```rust
+fn next(&mut self) -> Option<Cow<'_, str>> {
+    if self.field_index < self.metadata.fields.len() as isize -1 {
+        self.field_index += 1;
+        let field = &self.metadata.fields[self.field_index as usize]; 
+        let sources = if !field.sources.is_empty() {
+            &field.sources
+        } else if !self.metadata.default_source.is_empty() {
+            &self.metadata.default_source
+        } else {
+            tracing::error!("no sources for field {}", field.name);
+            return None;
+        };
+
+        self.field_str_value = None;
+        self.field_vec_value = None;
+        let field_name: Cow<'_, str> = if let Some(rename_all) = self.metadata.rename_all {
+            if let Some(rename) = field.rename {
+                Cow::from(rename)
+            } else {
+                rename_all.rename(field.name).into()
+            }
+        } else {
+            if let Some(rename) = field.rename {
+                rename
+            } else {
+                field.name
+            }
+            .into()
+        };
+
+        for source in sources {
+            match source.from {
+                SourceFrom::Request => {
+                    self.field_source = Some(source);
+                    return Some(Cow::from(field.name));
+                }
+                SourceFrom::Param => {
+                    let mut value = self.params.get(&*field.name);
+                    if value.is_none() {
+                        for alias in  &field.aliases {
+                            value = self.params.get(*alias);
+                            if value.is_some() {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(value) = value {
+                        self.field_str_value = Some(value);
+                        self.field_source = Some(source);
+                        return Some(Cow::from(field.name));
+                    }
+                }
+                SourceFrom::Query => {
+                    let mut value = self.queries.get_vec(field.name.as_ref());
+                    if value.is_none() {
+                        for alias in &field.aliases {
+                            value = if self.queries.get_vec(*alias);
+                            if value.is_some() {
+                                break;
+                            }
+                        }
+                    }
+                    if let Some(value) = value {
+                        self.field_vec_value = Some(value.iter().map(|v| CowValue(v.into())).collect());
+                        self.field_source = Some(source);
+                        return Some(Cow::from(field.name));
+                    }
+                }
+                SourceFrom::Header => {
+                    let mut value = None;
+                    if self.headers.contains_key(field_name.as_ref()) {
+                        value = Some(self.headers.get_all(field.name.as_ref()));
+                    } else {
+                        for alias in &field.aliases {
+                            if self.headers.contains_key(*alias) {
+                                value = Some(self.headers.get_all(*alias));
+                                break;
+                            }
+                        }
+                    };
+                    if let Some(value) = value {
+                        self.field_vec_value = Some(value.iter().map(|v| CowValue(Cow::from(v.to_str().unwrap_or_default()))).collect());
+                        self.field_source = Some(source);
+                        return Some(Cow::from(field.name))
+                    }
+                }
+                SourceFrom::Cookie => {
+                    let mut value = None;
+                    if let Some(cookie) = self.cookies.get(field.name.as_ref()) {
+                        value = Some(cookie.value());
+                    } else {
+                        for alias in &field.aliases {
+                            if let Some(cookie) = self.cookies.get(*alias) {
+                                value = Some(cookie.value());
+                                break;
+                            }
+                        }
+                    };
+                    if let Some(value) = value {
+                        self.field_str_value = Some(value);
+                        self.field_source = Some(source);
+                        return Some(Cow::from(field.name));
+                    }
+                }
+                SourceFrom::Body => match source.format {
+                    SourceFormat::Json => {
+                        if let Some(payload) = &self.payload {
+                            match payload {
+                                Payload::FormData(form_data) => {
+                                    let mut value = form_data.fields.get(field_name.as_ref());
+                                    if value.is_none() {
+                                        for alias in &field.aliases {
+                                            value = form_data.fields.get(*alias);
+                                            if value.is_some() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if let Some(value) = value {
+                                        self.field_str_value = Some(value);
+                                        self.field_source = Some(source);
+                                        return Some(Cow::from(field.name));
+                                    }else {
+                                        return None;
+                                    }
+                                }
+                                Payload::JsonMap(ref map) => {
+                                    let mut value = map.get(field_name.as_ref());
+                                    if value.is_none() {
+                                        for alias in &field.aliases {
+                                            value = map.get(alias);
+                                            if value.is_some() {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if let Some(value) = value {
+                                        self.field_str_value = Some(value.get());
+                                        self.field_source = Some(source);
+                                        return Some(Cow::from(field.name));
+                                    } else {
+                                        return None;
+                                    }
+                                }
+                                Payload::JsonStr(value) => {
+                                    self.field_str_value = Some(*value);
+                                    self.field_source = Some(source);
+                                    return Some(Cow::from(field.name));
+                                }
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    SourceFormat::MultiMap => {
+                        if let Some(Payload::FormData(form_data)) = self.payload {
+                            let mut value = form_data.fields.get_vec(field.name);
+                            if value.is_none() {
+                                for alias in &field.aliases {
+                                    value = form_data.fields.get_vec(*alias);
+                                    if value.is_some() {
+                                        break;
+                                    }
+                                }
+                            }
+                            if let Some(value) = value {
+                                self.field_vec_value = Some(value.iter().map(|v| CowValue(Cow::from(v))).collect());
+                                self.field_source = Some(source);
+                                return Some(Cow::from(field.name));
+                            } else {
+                                return None;
+                            }
+                        } else {
+                            return None;
+                        }
+                    }
+                    _ => {
+                        panic!("Unsupported source format: {:?}", source.format);
+                    }
+                }
+
+            }
+        }
+    }
+    None
+    }
+```
 
 ---
 ### Error (src/error) 
@@ -443,10 +665,10 @@ macro_rules! default_errors {
 ### Writer (src/writer)
 A trait is able to write the `ParseError` or `StatusError` into the `Response` part.
 
-### extract (src/extract)
+### Extract (src/extract)
 let you deserialize request to custom type
 
-#### metadata (src/extract/metadata)
+#### Metadata (src/extract/metadata)
 data struct:
 ```rust
 /// Struct's metadata information.
@@ -517,6 +739,9 @@ pub enum SourceFormat {
 
 ###### `RenameRule`
 Rename rule for a field.
+
+__Using module__ `cruet` : Adds String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title cases as well as ordinalize, deordinalize, demodulize, deconstantize, and foreign key are supported as both traits and pure functions acting on String types.
+
 ```rust
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
