@@ -4,14 +4,14 @@ use cookie::{Cookie, CookieJar};
 use futures::{Stream, TryStreamExt};
 use hyper::{
     body::Bytes,
-    header::{IntoHeaderName, SET_COOKIE},
+    header::{IntoHeaderName, CONTENT_LENGTH, SET_COOKIE},
     http::HeaderValue,
     HeaderMap, StatusCode, Version,
 };
 
 use std::error::Error as StdError;
 
-use crate::error::Error;
+use crate::{error::Error, writer::Piece};
 
 use super::errors::StatusError;
 
@@ -198,10 +198,218 @@ impl Response {
     pub fn version_mut(&mut self) -> &mut Version {
         &mut self.version
     }
+    pub fn body(&self) -> &ResBody {
+        &self.body
+    }
+    pub fn body_mut(&mut self) -> &mut ResBody {
+        &mut self.body
+    }
     pub fn set_body(&mut self, body: ResBody) {
         self.body = body;
     }
     pub fn replace_body(&mut self, body: ResBody) -> ResBody {
         std::mem::replace(&mut self.body, body)
     }
+    pub fn take_body(&mut self) -> ResBody {
+        std::mem::replace(&mut self.body, ResBody::None)
+    }
+    pub fn is_stamped(&mut self) -> bool {
+        if let Some(code) = self.status_code() {
+            if code.is_client_error() || code.is_server_error() || code.is_redirection() {
+                return true;
+            }
+        }
+        false
+    }
+    pub fn write_cookies_to_headers(&mut self) {
+        for cookie in self.cookies.delta() {
+            if let Ok(hv) = cookie.encoded().to_string().parse() {
+                self.headers.append(SET_COOKIE, hv);
+            }
+        }
+        self.cookies = CookieJar::new();
+    }
+    pub(crate) async fn write_back(mut self, res: &mut hyper::Response<hyper::Body>) {
+        self.write_cookies_to_headers();
+        let Self {
+            status_code,
+            headers,
+            body,
+            ..
+        } = self;
+        *res.headers_mut() = headers;
+
+        *res.status_mut() = status_code.unwrap_or(StatusCode::NOT_FOUND);
+
+        match body {
+            ResBody::None => {
+                res.headers_mut()
+                    .insert(CONTENT_LENGTH, HeaderValue::from_static("0"));
+            }
+            ResBody::Once(bytes) => {
+                *res.body_mut() = hyper::Body::from(bytes);
+            }
+            ResBody::Chunks(chunks) => {
+                *res.body_mut() = hyper::Body::wrap_stream(tokio_stream::iter(
+                    chunks
+                        .into_iter()
+                        .map(Result::<_, Box<dyn StdError + Sync + Send>>::Ok),
+                ));
+            }
+            ResBody::Stream(stream) => {
+                *res.body_mut() = hyper::Body::wrap_stream(stream);
+            }
+        }
+    }
+    pub fn cookies(&self) -> &CookieJar {
+        &self.cookies
+    }
+    pub fn cookies_mut(&mut self) -> &mut CookieJar {
+        &mut self.cookies
+    }
+    pub fn cookie<T>(&self, name: T) -> Option<&Cookie<'static>>
+    where
+        T: AsRef<str>,
+    {
+        self.cookies.get(name.as_ref())
+    }
+    pub fn add_cookie(&mut self, cookie: Cookie<'static>) -> &mut Self {
+        self.cookies.add(cookie);
+        self
+    }
+    pub fn with_cookie(&mut self, cookie: Cookie<'static>) -> &mut Self {
+        self.add_cookie(cookie);
+        self
+    }
+    pub fn remove_cookie(&mut self, name: &str) -> &mut Self {
+        if let Some(cookie) = self.cookies.get(name).cloned() {
+            self.cookies.remove(cookie);
+        }
+        self
+    }
+    pub fn status_code(&self) -> Option<StatusCode> {
+        self.status_code
+    }
+    pub fn set_status_code(&mut self, code: StatusCode) {
+        self.status_code = Some(code);
+        if !code.is_success() {
+            self.status_error = StatusError::from_code(code);
+        }
+    }
+    pub fn with_status_code(&mut self, code: StatusCode) -> &mut Self {
+        self.set_status_code(code);
+        self
+    }
+    pub fn status_error(&self) -> Option<&StatusError> {
+        self.status_error.as_ref()
+    }
+    pub fn set_status_error(&mut self, err: StatusError) {
+        self.status_code = Some(err.code);
+        self.status_error = Some(err);
+    }
+    pub fn with_status_error(&mut self, err: StatusError) -> &mut Self {
+        self.set_status_error(err);
+        self
+    }
+
+    pub fn render<P>(&mut self, piece: P)
+    where
+        P: Piece,
+    {
+        piece.render(self)
+    }
+    pub fn with_render<P>(&mut self, piece: P) -> &mut Self
+    where
+        P: Piece,
+    {
+        self.render(piece);
+        self
+    }
+    pub fn stuff<P>(&mut self, code: StatusCode, piece: P)
+    where
+        P: Piece,
+    {
+        self.status_code = Some(code);
+        piece.render(self)
+    }
+    pub fn with_stuff<P>(&mut self, code: StatusCode, piece: P) -> &mut Self
+    where
+        P: Piece,
+    {
+        self.stuff(code, piece);
+        self
+    }
+
+    pub fn write_body(&mut self, data: impl Into<Bytes>) -> crate::Result<()> {
+        match self.body_mut() {
+            ResBody::None => {
+                self.body = ResBody::Once(data.into());
+            }
+            ResBody::Once(ref bytes) => {
+                let mut chunks = VecDeque::new();
+                chunks.push_back(bytes.clone());
+                chunks.push_back(data.into());
+                self.body = ResBody::Chunks(chunks);
+            }
+            ResBody::Chunks(chunks) => {
+                chunks.push_back(data.into());
+            }
+            ResBody::Stream(_) => {
+                tracing::error!(
+                    "current body kind is `ResBody::Stream`, try to write byres to it "
+                );
+                return Err(Error::other(
+                    "current body kind is `ResBody::Stream`, try to write byres to it ",
+                ));
+            }
+        }
+        Ok(())
+    }
+    pub fn streaming<S, O, E>(&mut self, stream: S) -> crate::Result<()>
+    where
+        S: Stream<Item = Result<O, E>> + Send + Sync,
+        O: Into<Bytes> + 'static,
+        E: Into<Box<dyn StdError + Send + Sync>> + 'static,
+    {
+        match &self.body {
+            ResBody::Once(_) => {
+                return Err(Error::other("current body kind is `ResBody::Once` already"));
+            }
+            ResBody::Chunks(_) => {
+                return Err(Error::other(
+                    "current body kind is `ResBody::Chunks` already",
+                ));
+            }
+            ResBody::Stream(_) => {
+                return Err(Error::other(
+                    "current body kind is `ResBody::Stream` already",
+                ));
+            }
+            _ => {}
+        }
+        let mapped = stream.map_ok(Into::into).map_err(Into::into);
+        self.body = ResBody::Stream(Box::pin(mapped));
+        Ok(())
+    }
 }
+
+impl std::fmt::Debug for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(
+            f,
+            "HTTP/1.1 {}\n{:?}",
+            self.status_code.unwrap_or(StatusCode::NOT_FOUND),
+            self.headers
+        )
+    }
+}
+
+impl std::fmt::Display for Response {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Debug::fmt(self, f)
+    }
+}
+
+// TODO: Response Tests
+#[cfg(test)]
+mod tests {}

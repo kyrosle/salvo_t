@@ -1,4 +1,8 @@
 # Part 01
+
+Prepare for the `Request` , `Response` and `Depot`
+
+---
 `tokio` with features `macros` for `tokio::test` etc., `rt-multi-thread` 
 
 At first, I suggest the base call function like this as follow and start from here.
@@ -27,15 +31,6 @@ pub fn inject<V: Any + Send + Sync>(&mut self, value: V) -> &mut Self {
 ## TestClient
 Test modules wait for request module and response module builded.
 
----
-## Depot (src/http/depot.rs)
-data-struct-field:
-```rust
-#[derive(Default)]
-pub struct Depot {
-    map: HashMap<String, Box<dyn Any + Send + Sync>>,
-}
-```
 ---
 ## SocketAddr (src/addr.rs)
 Warping the `std::net::SocketAddr` and make convert
@@ -684,7 +679,53 @@ macro_rules! default_errors {
 ```
 ---
 ### Writer (src/writer)
-A trait is able to write the `ParseError` or `StatusError` into the `Response` part.
+A trait is able to write the `ParseError` , `StatusError`
+and `Result<(Writer + Send),(Writer + Send)>`
+into the `Response` part.
+
+`Writer` is used to write data to response.
+```rust
+#[async_trait]
+pub trait Writer {
+    /// Write data to [`Response`].
+    #[must_use = "write future must be used"]
+    async fn write(mut self, req: &mut Request, depot: &mut Depot, res: &mut Response);
+}
+```
+
+etc. like this: 
+```rust
+#[async_trait]
+impl<T, E> Writer for Result<T, E>
+where
+    T: Writer + Send,
+    E: Writer + Send,
+{
+    async fn write(mut self, req: &mut Request, depot: &mut Depot, res: &mut Response) {
+        match self {
+            Ok(v) => v.write(req, depot, res).await,
+            Err(e) => e.write(req, depot, res).await,
+        }
+    }
+}
+#[async_trait]
+impl Writer for Error {
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        let status_error = match self {
+            Error::HttpStatus(e) => e,
+            _ => StatusError::internal_server_error(),
+        };
+        res.set_status_error(status_error);
+    }
+}
+
+#[async_trait]
+impl Writer for anyhow::Error {
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        res.set_status_error(StatusError::internal_server_error());
+    }
+}
+```
 
 ### Extract (src/extract)
 let you deserialize request to custom type
@@ -808,146 +849,3 @@ pub struct Field {
 ```
 
 
-
----
-### Request (src/http/request.rs)
-use crate (only enum the module not the sub function or struct , enum etc.)
-
-`cookie`
-open the features : percent-encode
-
-`hyper`
-open the features : stream, server, http1, http2, tcp, client
-- http::header
-- http::method
-- http::version
-- http::{Extension, Uri}
-
-`mime`
-Media Type
-- mime
-
-`multimap`
-wrapper around `std::collections::HashMap` 
-but allow same key,
-just like the value is a vector.
-- multimap
-
-`once_cell`
-just like the `lazy_static`
-- once_cell
-
-`serde` Serializer and Deserializer
-- serde
-
-`serde_json` for its `RawValue`
-
-`form_urlencoded` : Convert a byte string in the `application/x-www-form-urlencoded` syntax into a `iterator` of `(name, value)` pairs (collected as `HashMap` such as).
-- form_urlencoded
-
-| pub           | pub(crate)        | pub(super)         | pub(self)          |
-| ------------- | ----------------- | ------------------ | ------------------ |
-| for every one | for current crate | for parent modules | for current module |
-
-main struct: 
-```rust
-pub struct Request {
-    // request url
-    uri: Uri,
-    // request header
-    headers: HeaderMap,
-    // request body as a reader
-    body: Option<Body>,
-    extensions: Extensions,
-    // request method
-    method: Method,
-    // accept: Option<Vec<Mime>>,
-    pub(crate) queries: OnceCell<MultiMap<String, String>>,
-    pub(crate) form_data: tokio::sync::OnceCell<FormData>,
-    pub(crate) payload: tokio::sync::OnceCell<Vec<u8>>,
-
-    version: Version,
-    pub(crate) remote_addr: Option<SocketAddr>,
-}
-```
-
-__functions__ :
-
-Read field with `T(take)`, `&T(&)`, `&mut T(&mut)` types functions.
-
-`from_data(&mut self) -> Result<&FormData, ParseError>` :
-read from `self.headers` get the `content_type` as `ctype`
-and then match the `ctype` 
-to construct the `FormData` with the `body` in `self.form_data`.
-
-`file<'a>(&'a mut self, key: &'a str) -> Option<'a FilePart>` : 
-read file data from the `self.form_data`.
-
-`payload(&mut self) -> Result<&Vec<u8>, ParseError>` : 
-read from body like `json` etc.
-
-`extract_with_metadata<'de, T>(&'de mut self, metadata: &'de Metadata) -> Result<T, ParseError>` : 
-use `from_request(self, metadata)` to get from `self.form_data` and `self.payload()`. 
-
-Parsing Self Value
-
-`pub fn accept(&self) -> Vec<Mime>` Get Accept
-
----
-### Response (src/http/response.rs)
-
-#### `ResBody`
-Response body type.
-```rust
-#[allow(clippy::type_complexity)]
-#[non_exhaustive]
-pub enum ResBody {
-    /// None body.
-    None,
-    /// Once bytes body.
-    Once(Bytes),
-    /// Chunks body.
-    Chunks(VecDeque<Bytes>),
-    /// Stream body.
-    Stream(Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>>),
-}
-```
-impl `Stream` trait like a futures state machine.
-```rust
-impl Stream for ResBody {
-    type Item = Result<Bytes, Box<dyn StdError + Send + Sync>>;
-
-    fn poll_next(
-        self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Option<Self::Item>> {
-        match self.get_mut() {
-            ResBody::None => Poll::Ready(None),
-            ResBody::Once(bytes) => {
-                if bytes.is_empty() {
-                    Poll::Ready(None)
-                } else {
-                    let bytes = std::mem::replace(bytes, Bytes::new());
-                    Poll::Ready(Some(Ok(bytes)))
-                }
-            }
-            ResBody::Chunks(chunks) => Poll::Ready(chunks.pop_front().map(Ok)),
-            ResBody::Stream(stream) => stream.as_mut().poll_next(cx),
-        }
-    }
-}
-```
-
-#### `Response`
-Data struct:
-Represents an HTTP response
-```rust
-pub struct Response {
-    status_code: Option<StatusCode>,
-    pub(crate) status_error: Option<StatusError>,
-    headers: HeaderMap,
-    version: Version,
-    pub(crate) cookies: CookieJar,
-    pub(crate) body: ResBody,
-}
-```

@@ -1,7 +1,15 @@
 use async_trait::async_trait;
 
-use crate::{http::errors::{ParseError, StatusError}, writer::Writer};
-use std::{error::Error as StdError, fmt::Display, io::Error as IoError, convert::Infallible};
+use crate::{
+    depot::Depot,
+    http::{
+        errors::{ParseError, StatusError},
+        request::Request,
+        response::Response,
+    },
+    writer::Writer,
+};
+use std::{convert::Infallible, error::Error as StdError, fmt::Display, io::Error as IoError};
 
 pub type BoxedError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -88,18 +96,20 @@ impl From<BoxedError> for Error {
     }
 }
 
-// TODO: impl Writer for Error
 #[async_trait]
 impl Writer for Error {
-    async fn write(mut self) {
-
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        let status_error = match self {
+            Error::HttpStatus(e) => e,
+            _ => StatusError::internal_server_error(),
+        };
+        res.set_status_error(status_error);
     }
 }
 
-// TODO: impl Writer for anyhow::Error
 #[async_trait]
 impl Writer for anyhow::Error {
-    async fn write(mut self) {
-
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        res.set_status_error(StatusError::internal_server_error());
     }
 }
