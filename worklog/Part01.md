@@ -896,6 +896,7 @@ Parsing Self Value
 ---
 ### Response (src/http/response.rs)
 
+#### `ResBody`
 Response body type.
 ```rust
 #[allow(clippy::type_complexity)]
@@ -909,5 +910,44 @@ pub enum ResBody {
     Chunks(VecDeque<Bytes>),
     /// Stream body.
     Stream(Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>>),
+}
+```
+impl `Stream` trait like a futures state machine.
+```rust
+impl Stream for ResBody {
+    type Item = Result<Bytes, Box<dyn StdError + Send + Sync>>;
+
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        match self.get_mut() {
+            ResBody::None => Poll::Ready(None),
+            ResBody::Once(bytes) => {
+                if bytes.is_empty() {
+                    Poll::Ready(None)
+                } else {
+                    let bytes = std::mem::replace(bytes, Bytes::new());
+                    Poll::Ready(Some(Ok(bytes)))
+                }
+            }
+            ResBody::Chunks(chunks) => Poll::Ready(chunks.pop_front().map(Ok)),
+            ResBody::Stream(stream) => stream.as_mut().poll_next(cx),
+        }
+    }
+}
+```
+
+#### `Response`
+Data struct:
+Represents an HTTP response
+```rust
+pub struct Response {
+    status_code: Option<StatusCode>,
+    pub(crate) status_error: Option<StatusError>,
+    headers: HeaderMap,
+    version: Version,
+    pub(crate) cookies: CookieJar,
+    pub(crate) body: ResBody,
 }
 ```

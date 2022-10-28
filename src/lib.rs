@@ -3,7 +3,7 @@ pub mod depot;
 pub mod http;
 pub mod test;
 pub mod serde;
-mod error;
+pub mod error;
 pub mod writer;
 pub mod extract;
 
