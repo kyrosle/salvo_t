@@ -1,5 +1,4 @@
-# Part03
-
+# Main
 The base function of this: 
 ```rust
 #[handler]
@@ -7,10 +6,37 @@ async fn hello_world() -> &'static str {
     "Hello world"
 }
 ```
-For this marco `handler`
+Here are about this  marco `handler` : 
 
----
 ## `Handler` (src/handler.rs)
+
+`Handler` is used for handle [`Request`].
+
+* `Handler` can be used as middleware to handle [`Request`].
+
+```rust
+use salvo_core::prelude::*;
+#[handler]
+async fn middleware() { }
+#[tokio::main]
+async fn main() {
+    Router::new().hoop(middleware);
+}
+```
+
+* `Handler` can be used as endpoint to handle [`Request`].
+
+```rust
+# use salvo_core::prelude::*;
+#[handler]
+async fn middleware() { }
+#[tokio::main]
+async fn main() {
+    Router::new().handle(middleware);
+}
+```
+
+* `Handler` trait : 
 
 ```rust
 #[async_trait]
@@ -36,10 +62,10 @@ pub trait Handler: Send + Sync + 'static {
 ```
 
 
-### `FlowCtrl` (src/routing)
+### `FlowCtrl` (src/routing/mod.rs)
 `FlowCtrl` is used to control the flow of execute handlers.
 
-When a request is coming, [`Router`] will detect it and get the matched one.
+* When a request is coming, [`Router`] will detect it and get the matched one.
 And then salvo will collect all handlers (including added as middlewares) in a list.
 All handlers in this list will executed one by one. Each handler can use `FlowCtrl` to control this
 flow, let the flow call next handler or skip all rest handlers.

@@ -1,20 +1,22 @@
-# Part 01
-
+# Main
 Prepare for the `Request` , `Response` and `Depot`
 
----
-`tokio` with features `macros` for `tokio::test` etc., `rt-multi-thread` 
+__use module(s)__ : 
+* `tokio` with features `macros` for `tokio::test` etc., `rt-multi-thread` 
 
-At first, I suggest the base call function like this as follow and start from here.
+At first, We can suggest the `base call function` like this (Similar with web `go`)
+as follow and the following will start from this suggestion.
 ```rust
 fn function(&self, req: &Request, depot: &Depot, res: &mut Response) -> a result;
 ```
-Base function modules: 
-- depot.rs `Depot`
-- request.rs `Request`
-- response.rs `Response`
+Base function params: 
+- `Depot` from `depot.rs `
+- `Request` from `request.rs`
+- `Response` from `response.rs`
 
 ---
+__encounter__ : 
+
 `Any` : A trait to emulate dynamic typing.
 ```rust
 pub fn inject<V: Any + Send + Sync>(&mut self, value: V) -> &mut Self {
@@ -28,29 +30,37 @@ pub fn inject<V: Any + Send + Sync>(&mut self, value: V) -> &mut Self {
 `Sync` : safe to share between threads (T is Sync if and only if &T is Send).
 
 ---
+
+# Preparation before preparation
+
 ## TestClient
 Test modules wait for request module and response module builded.
 
----
 ## SocketAddr (src/addr.rs)
 Warping the `std::net::SocketAddr` and make convert
 
----
-## Prepare for Request and Response
-### form (src/http/form.rs)
-control the file transport
+# Preparation of Building Request and Response
 
-The extracted text fields and uploaded files from a `multipart/form-data` request.
+`FilePart` ,`FormData` from `from.rs`
 
-#### `FilePart`
+
+## form (src/http/form.rs)
+__Main usage__ :  Control the file transport
+
+* The extracted text fields and uploaded files from a `multipart/form-data` request.
+
+### `FilePart`
 __Used modules__ :  
 
-`tempfile`: This crate provides several approaches to creating temporary files and directories.
+* `tempfile` : This crate provides several approaches to creating temporary files and directories.
 
-`textnonce` : Using `TextNonce` , for cryptographic concept of an arbitrary number that is never used more than once.
+* `textnonce` : Using `TextNonce` , for cryptographic concept of an arbitrary number that is never used more than once.
 
 A file that is to be inserted into a `multipart/*` or alternatively an uploaded file that
 was received as part of `multipart/*` parsing.
+
+Data struct :
+
 ```rust
 #[derive(Clone, Debug)]
 pub struct FilePart {
@@ -67,9 +77,12 @@ pub struct FilePart {
 }
 ```
 __main function__ : 
-Create a new temporary FilePart 
-(when created this way, the file will be deleted once the FilePart object goes out of scope).
+
+* Create a new temporary `FilePart`
+
+* When created this way, the file will be deleted once the FilePart object goes out of scope.
 ```rust
+[FilePart]
 pub async fn create(field: &mut Field<'_>) -> Result<FilePart, ParseError> {
     let mut path =
         tokio::task::spawn_blocking(|| [tempfile]Builder::new().prefix("salvo_http_multipart").tempdir())
@@ -99,6 +112,7 @@ pub async fn create(field: &mut Field<'_>) -> Result<FilePart, ParseError> {
     })
 }
 ```
+
 If `FilePart` was dropped, clean the file and dir path :
 ```rust
 impl Drop for FilePart {
@@ -115,7 +129,10 @@ impl Drop for FilePart {
 }
 ```
 
-#### `FormData`
+### `FormData`
+
+Data struct : 
+
 ```rust
 #[derive(Debug)]
 pub struct FormData {
@@ -127,8 +144,11 @@ pub struct FormData {
     pub files: MultiMap<String, FilePart>,
 }
 ```
+
 __main function__ : 
-Parse MIME `multipart/*` information from a stream as a [`FormData`].
+
+* Parse MIME `multipart/*` information from a stream as a [`FormData`].
+
 ```rust
 [FormData]
 pub(crate) async fn read(headers: &HeaderMap, body: ReqBody) -> Result<FormData, ParseError> {
@@ -166,16 +186,22 @@ pub(crate) async fn read(headers: &HeaderMap, body: ReqBody) -> Result<FormData,
 ```
 
 
-
 ---
-### serde (src/serde)
-modules:
+## serde (src/serde/mod.rs)
 
-`serde::de::value::Error` as `ValError`
+__Used error__ :
 
-`serde::de::Error` as `DeError`
+* `serde::de::value::Error` as `ValError`
 
-Having function:
+* `serde::de::Error` as `DeError`
+
+* `serde::de::VariantAccess` : 
+Provides a Visitor access to the data of an enum in the input.
+
+* `serde::de::EnumAccess` : 
+Called when deserializing a variant with no values.
+
+__Having function__ :
 
 `from_str_multi_val(I)`
 
@@ -199,6 +225,7 @@ Having function:
 - `C`: `IntoIterator<Item = V> + 'de`,
 - `V`: `Into<Cow<'de, str>> + std::cmp::Eq + 'de`,
 
+Metadata struct : 
 
 ```rust
 // impl `IntoDeserializer` trait
@@ -215,11 +242,7 @@ struct ValueEnumAccess<'de>(Cow<'de, str>);
 struct UnitOnlyVariantAccess;
 ```
 
-`EnumAccess` : Provides a Visitor access to the data of an enum in the input.
-
-`VariantAccess` : Called when deserializing a variant with no values.
-
-two self define macros for `Deserializer` trait
+Two self define macros for `Deserializer` trait , convenience  
 ```rust
 macro_rules! forward_cow_parsed_value {
     ($($ty:ident => $method:ident,)*) => {
@@ -235,7 +258,6 @@ macro_rules! forward_cow_parsed_value {
         )*
     }
 }
-
 macro_rules! forward_vec_parsed_value {
     ($($ty:ident => $method:ident,)*) => {
         $(
@@ -254,10 +276,57 @@ macro_rules! forward_vec_parsed_value {
         )*
     }
 }
+metadata :
+        bool => deserialize_bool,
+        u8 => deserialize_u8,
+        u16 => deserialize_u16,
+        u32 => deserialize_u32,
+        u64 => deserialize_u64,
+        i8 => deserialize_i8,
+        i16 => deserialize_i16,
+        i32 => deserialize_i32,
+        i64 => deserialize_i64,
+        f32 => deserialize_f32,
+        f64 => deserialize_f64,
+
 use serde::de::forward_to_deserialize_any;
+metadata :
+        char
+        str
+        string
+        unit
+        bytes
+        byte_buf
+        unit_struct
+        tuple_struct
+        struct
+        identifier
+        tuple
+        ignored_any
+        seq
+        map
 ```
 
-Deserialize for request:
+### `request` (src/serde/request.rs) 
+For helping `Request` Deserializer.
+
+#### `Payload`
+
+`Payload` field:
+
+```rust
+#[derive(Debug, Clone)]
+pub(crate) enum Payload<'a> {
+    FormData(&'a FormData),
+    JsonStr(&'a str),
+    JsonMap(HashMap<&'a str, &'a RawValue>),
+}
+```
+
+#### `RequestDeserializer`
+
+Data struct:
+
 ```rust
 pub(crate) struct RequestDeserializer<'de> {
     params: &'de HashMap<String, String>,
@@ -272,33 +341,12 @@ pub(crate) struct RequestDeserializer<'de> {
     field_vec_value: Option<Vec<CowValue<'de>>>,
 }
 ```
-`Payload` field:
-```rust
-#[derive(Debug, Clone)]
-pub(crate) enum Payload<'a> {
-    FormData(&'a FormData),
-    JsonStr(&'a str),
-    JsonMap(HashMap<&'a str, &'a RawValue>)
-}
-```
-#### `request` 
-For helping `Request` Deserializer.
-##### `Payload`
-```rust
-#[derive(Debug, Clone)]
-pub(crate) enum Payload<'a> {
-    FormData(&'a FormData),
-    JsonStr(&'a str),
-    JsonMap(HashMap<&'a str, &'a RawValue>),
-}
-```
 
-##### `RequestDeserializer`
-data struct:
+__Implements__ : 
 
-impl `de::Deserializer` and `de::MapAccess` trait
+`de::Deserializer` trait and `de::MapAccess` trait
 
-`de::MapAccess` : Provides a Visitor access to each entry of a map in the input.
+* `de::MapAccess` : Provides a Visitor access to each entry of a map in the input.
 
 ```rust
 #[derive(Debug)]
@@ -315,10 +363,11 @@ pub(crate) struct RequestDeserializer<'de> {
     field_vec_value: Option<Vec<CowValue<'de>>>,
 }
 ```
-main functions:
 
+__Main functions__ :
+
+Construct from Request and Metadata
 ```rust
-// Construct from Request and Metadata
 [RequestDeserializer]
 pub(crate) fn new(
     request: &'de mut Request,
@@ -355,6 +404,7 @@ pub(crate) fn new(
     })
 }
 ```
+
 ```rust
 [RequestDeserializer]
 fn deserialize_value<T>(&mut self, seed: T) -> Result<T::Value, ValError>
@@ -582,9 +632,7 @@ fn next(&mut self) -> Option<Cow<'_, str>> {
 ```
 
 ---
-### Error (src/error) 
-__Ignoring using cfg(anyhow)__
-
+## Error (src/error/mod.rs) 
 use `std::io::Error` as `IoError`
 
 use `serde::de::Error` as `DeError`
@@ -599,12 +647,13 @@ use crate `thiserror` for its `#[error("message")]` usage
 
 use crate `multer` : An async parser for multipart/form-data content-type in Rust.
 
+Type define :
 ```rust
-// Error is from module error.rs () and http/error.rs (parse_error and status_error)
+//Error is from module error.rs () and http/error.rs (parse_error and status_error)
 pub type Result<T> = std::result::Result<T, Error>;
 ```
 
-main `Error` struct :
+Main `Error` struct :
 ```rust
 #[derive(Debug)]
 #[non_exhaustive]
@@ -619,25 +668,82 @@ pub enum Error {
 }
 ```
 
-delay modules `writer` in src/writer
+__Implements__ : 
 
-delay module `error` in src/http/error
+Different Error `From<E>` trait for this `Error`
 
-trait `From<Infallible>` 
+* trait `From<Infallible>` 
 
----
+`Writer` trait from src/writer
 
-`ParseError` and `StatusError` were impl the trait `Writer` with function:
+`ParseError` struct and `StatusError` struct from src/http/error
+
+`ParseError` and `StatusError` were Implemented the trait `Writer` with function:
 ```rust
 async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response);
 ```
 ---
-### ParseError
+### ParseError (src/http/errors/parse_error.rs)
 
 For `ParseError` enum the type of Error when using Parse such as Parsing Body, Parsing Url, using Parsing Serde and etc.
+```rust
+/// ParseError, errors happened when read data from http request.
+#[derive(Error, Debug)]
+#[non_exhaustive]
+pub enum ParseError {
+    /// The Hyper request did not have a valid Content-Type header.
+    #[error("The Hyper request did not have a valid Content-Type header.")]
+    InvalidContentType,
+    /// The Hyper request's body is empty.
+    #[error("The Hyper request's body is empty.")]
+    EmptyBody,
+    /// Parse error when parse from str.
+    #[error("Parse error when parse from str.")]
+    ParseFromStr,
+    /// Parse error when parse from str.
+    #[error("Parse error when decode url.")]
+    UrlDecode,
+    /// Deserialize error when parse from request.
+    #[error("Deserialize error.")]
+    Deserialize(#[from] DeError),
+    /// DuplicateKey.
+    #[error("DuplicateKey.")]
+    DuplicateKey,
+    /// The Hyper request Content-Type top-level Mime was not `Multipart`.
+    #[error("The Hyper request Content-Type top-level Mime was not `Multipart`.")]
+    NotMultipart,
+    /// The Hyper request Content-Type sub-level Mime was not `FormData`.
+    #[error("The Hyper request Content-Type sub-level Mime was not `FormData`.")]
+    NotFormData,
+    /// InvalidRange.
+    #[error("InvalidRange")]
+    InvalidRange,
+    /// An multer error.
+    #[error("Multer error: {0}")]
+    Multer(#[from] multer::Error),
+    /// An I/O error.
+    #[error("I/O error: {}", _0)]
+    Io(#[from] IoError),
+    /// An error was returned from hyper.
+    #[error("Hyper error: {0}")]
+    Hyper(#[from] hyper::Error),
+    /// An error occurred during UTF-8 processing.
+    #[error("UTF-8 processing error: {0}")]
+    Utf8(#[from] Utf8Error),
+    /// Serde json error.
+    #[error("Serde json error: {0}")]
+    SerdeJson(#[from] serde_json::error::Error),
+    /// Custom error that does not fall under any other error kind.
+    #[error("Other error: {0}")]
+    Other(BoxedError),
+}
+
+/// Result type with `ParseError` has it's error type.
+pub type ParseResult<T> = Result<T, ParseError>;
+```
 
 ---
-### StatusError
+### StatusError (src/http/statusError.rs)
 
 `StatusError` struct: 
 ```rust
@@ -649,13 +755,20 @@ pub struct StatusError {
 }
 ```
 
-Impl `std::fmt::Display` trait
+__Implements__ : 
 
-Impl such type error `From<T>`
+`std::fmt::Display` trait
 
-`From<Infallible>` mean never return type
+Different errors `From<Error>`
 
-Function `from_code(StatusCode) -> Option<StatusError>` 
+* `From<Infallible>` mean never return type
+
+__Function__ :
+
+`from_code(StatusCode) -> Option<StatusError>` :
+
+* Create new `StatusError` with code.
+If code is not error, it will be `None`.
 
 Having two pub self-functions `with_summary` and `with_detail` were design as chained call.
 
@@ -677,8 +790,9 @@ macro_rules! default_errors {
     };
 }
 ```
+
 ---
-### Writer (src/writer)
+### Writer (src/writer/mod.rs)
 A trait is able to write the `ParseError` , `StatusError`
 and `Result<(Writer + Send),(Writer + Send)>`
 into the `Response` part.
@@ -728,11 +842,13 @@ impl Writer for anyhow::Error {
 }
 ```
 
-### Extract (src/extract)
-let you deserialize request to custom type
+### Extract (src/extract/metadata.rs)
+let you deserialize request to custom type.
 
-#### Metadata (src/extract/metadata)
-data struct:
+#### Metadata
+Struct's metadata information.
+
+Data struct:
 ```rust
 /// Struct's metadata information.
 #[derive(Clone, Debug)]
@@ -748,9 +864,11 @@ pub struct Metadata {
 }
 ```
 ---
-##### Source
+#### Source
+Request source for extract data.
+
+Data struct : 
 ```rust
-/// Request source for extract data.
 #[derive(Copy, Clone, Debug)]
 pub struct Source {
     /// The source from.
@@ -759,9 +877,12 @@ pub struct Source {
     pub format: SourceFormat,
 }
 ```
+
+__Implements__ : 
+
 `SourceFrom` and `SourceFormat` both impl the `FromStr` trait
 
-###### `SourceFrom`
+#### `SourceFrom`
 Source from for a field.
 ```rust
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
@@ -783,10 +904,12 @@ pub enum SourceFrom {
 }
 ```
 
-###### `SourceFormat`
+#### `SourceFormat`
 Source format for a source. This format is just means that field format, not the request mime type.
 
 For example, the request is posted as form, but if the field is string as json format, it can be parsed as json.
+
+Data struct : 
 ```rust
 #[derive(Eq, PartialEq, Copy, Clone, Debug)]
 #[non_exhaustive]
@@ -800,11 +923,14 @@ pub enum SourceFormat {
 }
 ```
 
-###### `RenameRule`
+#### `RenameRule`
 Rename rule for a field.
 
-__Using module__ `cruet` : Adds String based inflections for Rust. Snake, kebab, train, camel, sentence, class, and title cases as well as ordinalize, deordinalize, demodulize, deconstantize, and foreign key are supported as both traits and pure functions acting on String types.
+__Using module__
+* `cruet` : Adds String based inflections for Rust. 
+ Snake, kebab, train, camel, sentence, class, and title cases as well as ordinalize, deordinalize, demodulize, deconstantize, and foreign key are supported as both traits and pure functions acting on String types.
 
+Data struct :
 ```rust
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
@@ -831,8 +957,10 @@ pub enum RenameRule {
 }
 ```
 
-###### `Field`
+#### `Field`
 Information about struct field.
+
+Data struct :
 ```rust
 #[derive(Clone, Debug)]
 pub struct Field {

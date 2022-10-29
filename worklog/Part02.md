@@ -1,6 +1,4 @@
-# Part02
----
-
+# Main
 Building base router function
 
 ## Depot (src/http/depot.rs)
@@ -13,46 +11,44 @@ pub struct Depot {
 ```
 
 ---
-### Request (src/http/request.rs)
+## Request (src/http/request.rs)
 use crate (only enum the module not the sub function or struct , enum etc.)
 
-`cookie`
+__using outer crate__ :
+
+* `cookie`
 open the features : percent-encode
 
-`hyper`
+* `hyper`
 open the features : stream, server, http1, http2, tcp, client
-- http::header
-- http::method
-- http::version
-- http::{Extension, Uri}
+http::header
+http::method
+http::version
+http::{Extension, Uri}
 
-`mime`
+* `mime`
 Media Type
-- mime
 
-`multimap`
+* `multimap`
 wrapper around `std::collections::HashMap` 
 but allow same key,
 just like the value is a vector.
-- multimap
 
-`once_cell`
+* `once_cell`
 just like the `lazy_static`
-- once_cell
 
-`serde` Serializer and Deserializer
-- serde
+* `serde` Serializer and Deserializer
 
-`serde_json` for its `RawValue`
+* `serde_json` for its `RawValue`
 
-`form_urlencoded` : Convert a byte string in the `application/x-www-form-urlencoded` syntax into a `iterator` of `(name, value)` pairs (collected as `HashMap` such as).
+* `form_urlencoded` : Convert a byte string in the `application/x-www-form-urlencoded` syntax into a `iterator` of `(name, value)` pairs (collected as `HashMap` such as).
 - form_urlencoded
 
 | pub           | pub(crate)        | pub(super)         | pub(self)          |
 | ------------- | ----------------- | ------------------ | ------------------ |
 | for every one | for current crate | for parent modules | for current module |
 
-main struct: 
+Data struct : 
 ```rust
 pub struct Request {
     // request url
@@ -79,28 +75,31 @@ __functions__ :
 Read field with `T(take)`, `&T(&)`, `&mut T(&mut)` types functions.
 
 `from_data(&mut self) -> Result<&FormData, ParseError>` :
-read from `self.headers` get the `content_type` as `ctype`
+* read from `self.headers` get the `content_type` as `ctype`
 and then match the `ctype` 
 to construct the `FormData` with the `body` in `self.form_data`.
 
 `file<'a>(&'a mut self, key: &'a str) -> Option<'a FilePart>` : 
-read file data from the `self.form_data`.
+* read file data from the `self.form_data`.
 
 `payload(&mut self) -> Result<&Vec<u8>, ParseError>` : 
-read from body like `json` etc.
+* read from body like `json` etc.
 
 `extract_with_metadata<'de, T>(&'de mut self, metadata: &'de Metadata) -> Result<T, ParseError>` : 
-use `from_request(self, metadata)` to get from `self.form_data` and `self.payload()`. 
+* use `from_request(self, metadata)` to get from `self.form_data` and `self.payload()`. 
 
 Parsing Self Value
 
-`pub fn accept(&self) -> Vec<Mime>` Get Accept
+`pub fn accept(&self) -> Vec<Mime>` 
+* Get Accept
 
 ---
-### Response (src/http/response.rs)
+## Response (src/http/response.rs)
 
-#### `ResBody`
+### `ResBody`
 Response body type.
+
+Data struct :
 ```rust
 #[allow(clippy::type_complexity)]
 #[non_exhaustive]
@@ -115,8 +114,9 @@ pub enum ResBody {
     Stream(Pin<Box<dyn Stream<Item = Result<Bytes, Box<dyn StdError + Send + Sync>>> + Send>>),
 }
 ```
+__Implements__ : 
 
-impl `Stream` trait like a futures state machine.
+`Stream` trait like a futures state machine.
 ```rust
 impl Stream for ResBody {
     type Item = Result<Bytes, Box<dyn StdError + Send + Sync>>;
@@ -142,7 +142,7 @@ impl Stream for ResBody {
 }
 ```
 
-#### `Response`
+### `Response`
 Data struct:
 Represents an HTTP response
 ```rust
@@ -159,6 +159,7 @@ pub struct Response {
 impl `From<hyper::Response<hyper::Body>>` trait
 
 __use module__ :
+
 `tokio_stream` : It can be thought of as an asynchronous version of the standard library’s Iterator trait.
 
 
@@ -310,7 +311,7 @@ where
 }
 ```
 
-##### `Piece`
+### `Piece`
 `Piece` is used to write data to [`Response`].
 
 `Piece` is simpler than [`Writer`] ant it implements [`Writer`].

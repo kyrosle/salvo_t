@@ -1,5 +1,10 @@
 # Readme
-This project just for me to learn a web framework which written in `rust`.
+This project was crated just for my learning about how a web framework worked and  this was written in `rust`.
+
+- The learning project: https://github.com/salvo-rs/salvo
+
+- The learning project official documentation: https://salvo.rs/
+
 Logging my every stage reading the source code.
 
 - learning platforms: windows-11 
@@ -13,4 +18,4 @@ working-log are in the ./worklog/*
 
 [Part02](./worklog/Part02.md) Build `Request` , `Response`, `Depot`
 
-[Part03](./worklog/Part03.md)
+[Part03](./worklog/Part03.md) Build `Handler`
