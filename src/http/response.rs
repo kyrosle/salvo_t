@@ -367,7 +367,7 @@ impl Response {
     }
     pub fn streaming<S, O, E>(&mut self, stream: S) -> crate::Result<()>
     where
-        S: Stream<Item = Result<O, E>> + Send + Sync,
+        S: Stream<Item = Result<O, E>> + Send + Sync + 'static,
         O: Into<Bytes> + 'static,
         E: Into<Box<dyn StdError + Send + Sync>> + 'static,
     {

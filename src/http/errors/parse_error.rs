@@ -3,7 +3,13 @@ use serde::de::value::Error as DeError;
 use std::{io::Error as IoError, str::Utf8Error};
 use thiserror::Error;
 
-use crate::writer::Writer;
+use crate::{
+    depot::Depot,
+    http::{request::Request, response::Response},
+    writer::Writer,
+};
+
+use super::StatusError;
 
 pub type ParseResult<T> = Result<T, ParseError>;
 #[derive(Error, Debug)]
@@ -66,16 +72,18 @@ pub enum ParseError {
     SerdeJson(#[from] serde_json::error::Error),
 }
 
-// TODO: impl Writer for ParseError
 #[async_trait]
 impl Writer for ParseError {
-    async fn write(mut self) {
-
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        res.set_status_error(
+            StatusError::internal_server_error()
+                .with_summary("http read error happened")
+                .with_detail("there is no more detailed explanation"),
+        )
     }
 }
 
 // TODO: error - parse error test
 #[cfg(test)]
 mod test {
-    use async_trait::async_trait;
 }

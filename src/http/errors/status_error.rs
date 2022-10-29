@@ -3,7 +3,7 @@ use std::{error::Error as StdError, fmt::Display};
 use async_trait::async_trait;
 use hyper::StatusCode;
 
-use crate::writer::Writer;
+use crate::{writer::Writer, http::{response::Response, request::Request}, depot::Depot};
 
 pub type StatusResult<T> = Result<T, StatusError>;
 
@@ -150,5 +150,7 @@ impl StatusError {
 // TODO: impl Writer for StatusError
 #[async_trait]
 impl Writer for StatusError {
-    async fn write(mut self) {}
+    async fn write(mut self, _req: &mut Request, _depot: &mut Depot, res: &mut Response) {
+        res.set_status_error(self)
+    }
 }

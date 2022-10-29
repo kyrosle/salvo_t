@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use hyper::{header::CONTENT_TYPE, http::HeaderValue};
 
 use crate::{
     depot::Depot,
@@ -7,6 +8,7 @@ use crate::{
 
 #[async_trait]
 pub trait Writer {
+    #[must_use = "write future must be used"]
     async fn write(mut self, req: &mut Request, depot: &mut Depot, res: &mut Response);
 }
 
@@ -26,4 +28,44 @@ where
 
 pub trait Piece {
     fn render(self, res: &mut Response);
+}
+
+#[async_trait]
+impl<P> Writer for P
+where
+    P: Piece + Sized + Send,
+{
+    async fn write(mut self, req: &mut Request, depot: &mut Depot, res: &mut Response) {
+        self.render(res)
+    }
+}
+
+impl Piece for () {
+    fn render(self, _res: &mut Response) {}
+}
+
+impl Piece for &'static str {
+    fn render(self, res: &mut Response) {
+        res.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=UTF-8"),
+        );
+        res.write_body(self.as_bytes().to_vec()).ok();
+    }
+}
+
+impl Piece for String {
+    fn render(self, res: &mut Response) {
+        res.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=UTF-8"),
+        );
+        res.write_body(self.as_bytes().to_vec()).ok();
+    }
+}
+
+// TODO: Writer and Piece Tests
+#[cfg(test)]
+mod tests {
+
 }

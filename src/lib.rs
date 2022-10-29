@@ -7,6 +7,8 @@ pub mod error;
 pub mod writer;
 pub mod extract;
 
+pub mod handler;
+pub mod routing;
 
 use crate::error::Error;
 

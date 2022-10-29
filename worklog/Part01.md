@@ -36,7 +36,7 @@ Test modules wait for request module and response module builded.
 Warping the `std::net::SocketAddr` and make convert
 
 ---
-## Request and Response
+## Prepare for Request and Response
 ### form (src/http/form.rs)
 control the file transport
 
@@ -692,6 +692,7 @@ pub trait Writer {
     async fn write(mut self, req: &mut Request, depot: &mut Depot, res: &mut Response);
 }
 ```
+Impl `Writer` for `&'static str` and `String`
 
 etc. like this: 
 ```rust

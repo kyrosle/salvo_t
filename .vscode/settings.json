@@ -4,6 +4,7 @@
     "Deque",
     "deref",
     "hbody",
+    "middlewares",
     "mulitimap",
     "multer",
     "multiparts",
