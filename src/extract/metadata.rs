@@ -40,6 +40,7 @@ impl FromStr for SourceFrom {
     }
 }
 /// Rename rule for a field.
+#[allow(clippy::enum_variant_names)]
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 #[non_exhaustive]
 pub enum RenameRule {

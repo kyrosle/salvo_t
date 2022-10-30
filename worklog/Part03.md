@@ -61,6 +61,114 @@ pub trait Handler: Send + Sync + 'static {
 }
 ```
 
+This is a empty implement for `Handler`.
+
+`empty_handler` does nothing except set [`Response`]'s satus as [`StatusCode::OK`], it just marker a router exits.
+```rust
+#[allow(non_camel_case_types)]
+pub struct empty_handler;
+#[async_trait]
+impl Handler for empty_handler {
+    async fn handle(&self, _req: &mut Request, _depot: &mut Depot, res: &mut Response, _ctrl: &mut FlowCtrl) {
+        res.set_status_code(StatusCode::OK);
+    }
+}
+```
+
+`Skipper` is used in many middlewares.
+```rust
+pub trait Skipper: Send + Sync + 'static {
+    /// Check if the request should be skipped.
+    fn skipped(&self, req: &mut Request, depot: &Depot) -> bool;
+}
+impl<F> Skipper for F
+where
+    F: Fn(&mut Request, &Depot) -> bool + Send + Sync + 'static,
+{
+    fn skipped(&self, req: &mut Request, depot: &Depot) -> bool {
+        (self)(req, depot)
+    }
+}
+```
+
+`none_skipper` will skipper nothing.
+
+It can be used as default `Skipper` in middleware.
+```rust
+pub fn none_skipper(_req: &mut Request, _depot: &Depot) -> bool {
+    false
+}
+```
+
+`Handler` and `Skipper` trait are implemented by `tuple`
+
+```rust
+macro_rules! handler_tuple_impls {
+    (
+        $(
+            $Tuple:tt {
+                $(($idx:tt) -> $T:ident,)+
+            }
+        )+
+    ) => {
+        $(
+            #[async_trait::async_trait]
+            impl<$($T,)+> Handler for ($($T,)+) where $($T: Handler,)+
+            {
+                async fn handle(&self, req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl)
+                {
+                    $(
+                        if !res.is_stamped() {
+                            self.$idx.handler(req, depot, res, ctrl).await;
+                        }
+                    )+
+                }
+            }
+        )+
+    };
+}
+macro_rules! skipped_tuple_impls {
+    (
+        $(
+            $Tuple:tt {
+                $(($idx:tt) -> $T:ident,)+
+            }
+        )+
+    ) => {
+        $(
+            impl<$($T,)+> Skipper for ($($T,)+) where $($T: Skipper,)+
+            {
+                fn skipped(&self, req: &mut Request, depot: &Depot) -> bool {
+                    $(
+                        if self.$idx.skipped(req, depot) {
+                            return true;
+                        }
+                    )+
+                    false
+                }
+            }
+        )+
+    };
+}
+
+macro_rules! __for_each_tuple {
+    ($callback:ident) => {
+        $callback! {
+            1 {
+                (0) -> A,
+            }
+            2 {
+                (0) -> A,
+                (1) -> B,
+            }
+            ... ...
+        }
+    };
+}
+
+__for_each_tuple!(handler_tuple_impls);
+__for_each_tuple!(skipper_tuple_impls);
+```
 
 ### `FlowCtrl` (src/routing/mod.rs)
 `FlowCtrl` is used to control the flow of execute handlers.
