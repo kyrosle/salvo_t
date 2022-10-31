@@ -1,6 +1,13 @@
 use std::fmt::{self, Formatter};
 
-mod opts;
+pub mod opts;
+pub mod others;
+pub mod path;
+
+use hyper::http::uri::Scheme;
+pub use others::*;
+pub use path::*;
+
 use crate::http::request::Request;
 
 use self::opts::*;
@@ -56,4 +63,35 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
     }
 
     fn filter(&self, req: &mut Request, path: &mut PathState) -> bool;
+}
+
+#[derive(Copy, Clone)]
+#[allow(missing_debug_implementations)]
+pub struct FnFilter<F>(pub F);
+
+impl<F> Filter for FnFilter<F>
+where
+    F: Fn(&mut Request, &mut PathState) -> bool + Send + Sync + 'static,
+{
+    fn filter(&self, req: &mut Request, path: &mut PathState) -> bool {
+        self.0(req, path)
+    }
+}
+impl<F> fmt::Debug for FnFilter<F> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "fn:fn")
+    }
+}
+
+pub fn scheme(scheme: Scheme, default: bool) -> SchemeFilter {
+    SchemeFilter(scheme, default)
+}
+pub fn host(host: impl Into<String>, default: bool) -> HostFilter {
+    HostFilter(host.into(), default)
+}
+pub fn port(port: u16, default: bool) -> PortFilter {
+    PortFilter(port, default)
+}
+pub fn path(path: String, default: bool) -> PathFilter {
+    PathFilter(path.into(), default)
 }

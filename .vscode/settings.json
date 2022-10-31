@@ -1,9 +1,14 @@
 {
   "cSpell.words": [
+    "cnst",
+    "concat",
+    "Condvar",
     "ctype",
+    "curr",
     "Deque",
     "deref",
     "hbody",
+    "hexdigit",
     "impls",
     "Inflector",
     "middlewares",
@@ -18,5 +23,11 @@
     "thiserror",
     "urlsafe",
     "usize"
+  ],
+  "grammarly.selectors": [
+    {
+      "language": "markdown",
+      "scheme": "file"
+    }
   ]
 }

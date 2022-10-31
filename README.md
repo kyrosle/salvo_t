@@ -20,7 +20,9 @@ working-log are in the ./worklog/*
 
 [Part03](./worklog/Part03.md) Build `Handler`
 
-[Part05](./worklog/Part04.md) Build `Router`
+[part04](./worklog/Part04.md) Build `Filter`
+
+[Part05](./worklog/Part05.md) Build `Router`
 
 [Part06]() Build `Service`
 

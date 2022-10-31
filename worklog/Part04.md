@@ -4,6 +4,8 @@ Router can route http requests to different handlers.
 
 Including mapping the url to server service and adding Middlewares etc.
 
+Filter Part
+
 ## Filter (src/routing/filter/mod.rs)
 `Filter` trait for filter request.
 ```rust
@@ -226,4 +228,317 @@ pub struct AndThen<T, F> {
 
 ```
 
-## Router (src/routing/router.rs)
+`Or` , `OrElse` , `And` and `AndThen` are implemented trait `Filter`
+
+### Filter Request (src/routing/mod.rs)
+
+`FnFilter`
+```rust
+#[derive(Copy, Clone)]
+#[allow(missing_debug_implementations)]
+pub struct FnFilter<F>(pub F);
+```
+* implement `fmt::Debug` trait and `Filter` trait
+
+#### others (src/routing/others.rs)
+
+`MethodFilter`
+Filter by request method
+```rust
+#[derive(Clone, PartialEq, Eq)]
+pub struct MethodFilter(pub Method);
+```
+* implement `fmt::Debug` trait and `Filter` trait
+
+`SchemeFilter` 
+Filter by request uri scheme.
+```rust
+#[derive(Clone, PartialEq, Eq)]
+pub struct SchemeFilter(pub Scheme, pub bool);
+```
+* implement `fmt::Debug` trait and `Filter` trait
+
+`HostFilter` 
+Filter by request uri host.
+```rust
+#[derive(Clone, PartialEq, Eq)]
+pub struct HostFilter(pub String, pub bool);
+```
+* implement `fmt::Debug` trait and `Filter` trait
+
+`PortFilter` Filter by request uri host.
+```rust
+#[derive(Clone, PartialEq, Eq)]
+pub struct PortFilter(pub u16, pub bool);
+```
+* implement `fmt::Debug` trait and `Filter` trait
+
+#### path (src/routing/path.rs)
+
+Trait `PathWisp`
+```rust
+pub trait PathWisp: Send + Sync + fmt::Debug + 'static {
+    #[doc(hidden)]
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
+    #[doc(hidden)]
+    fn type_name(&self) -> &'static str {
+        std::any::type_name::<Self>()
+    }
+    /// Detect is that path matched.
+    fn detect(&self, state: &mut PathState) -> bool;
+}
+```
+
+#### Wisp Builder
+
+__use modules__ :
+
+`parking_lot` : 
+This library provides implementations of `Mutex`, `RwLock`, `Condvar` and `Once` that are smaller, faster and more flexible than those in the Rust standard library. It also provides a ReentrantMutex type.
+
+`regex` : Regex
+
+`WispBuilder`
+```rust
+pub trait WispBuilder: Send + Sync {
+    fn build(
+        &self,
+        name: String,
+        sign: String,
+        args: Vec<String>,
+    ) -> Result<Box<dyn PathWisp>, String>;
+}
+```
+
+`WispBuilderMap`
+```rust
+type WispBuilderMap = RwLock<HashMap<String, Arc<Box<dyn WispBuilder>>>>;
+```
+
+
+`RegexWisp`
+```rust
+#[derive(Debug)]
+struct RegexWisp {
+    name: String,
+    regex: Regex,
+}
+```
+* impl `PartialEq` , `PathWisp`
+
+`PathWisp::detect` function:
+```rust
+impl PathWisp for RegexWisp {
+    fn detect(&self, state: &mut PathState) -> bool {
+        if self.name.starts_with('*') {
+            let rest = state.all_rest();
+            if rest.is_none() {
+                return false;
+            }
+            let rest = &*rest.unwrap();
+
+            if !rest.is_empty() || self.name.starts_with("**") {
+                let cap = self.regex.captures(rest).and_then(|caps| caps.get(0));
+                if let Some(cap) = cap {
+                    let cap = cap.as_str().to_owned();
+                    state.forward(cap.len());
+                    state.params.insert(self.name.clone(), cap);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            let picked = state.pick();
+            if picked.is_none() {
+                return false;
+            }
+            let picked = picked.unwrap();
+            let cap = self.regex.captures(picked).and_then(|caps| caps.get(0));
+            if let Some(cap) = cap {
+                let cap = cap.as_str().to_owned();
+                state.forward(cap.len());
+                state.params.insert(self.name.clone(), cap);
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+```
+
+`RegexWispBuilder`
+```rust
+pub struct RegexWispBuilder(Regex);
+impl RegexWispBuilder {
+    pub fn new(checker: Regex) -> Self {
+        Self(checker)
+    }
+}
+```
+
+`CharWispBuilder`
+```rust
+struct CharWisp<C> {
+    name: String,
+    checker: Arc<C>,
+    min_width: usize,
+    max_width: Option<usize>,
+}
+pub struct CharWispBuilder<C>(Arc<C>);
+impl<C> CharWispBuilder<C> {
+    pub fn new(checker: C) -> Self {
+        Self(Arc::new(checker))
+    }
+}
+```
+
+* impl `fmt::Debug` trait and `PathWisp` trait
+
+`PathWisp::detect` function :
+```rust
+impl<C> PathWisp for CharWisp<C>
+where
+    C: Fn(char) -> bool + Send + Sync + 'static,
+{
+    fn detect(&self, state: &mut PathState) -> bool {
+        let picked = state.pick();
+        if picked.is_none() {
+            return false;
+        }
+        let picked = picked.unwrap();
+        if let Some(max_width) = self.max_width {
+            let mut chars = Vec::with_capacity(max_width);
+            for ch in picked.chars() {
+                if (self.checker)(ch) {
+                    chars.push(ch);
+                }
+                if chars.len() == max_width {
+                    state.forward(max_width);
+                    state
+                        .params
+                        .insert(self.name.clone(), chars.into_iter().collect());
+                    return true;
+                }
+            }
+            if chars.len() >= self.min_width {
+                state.forward(chars.len());
+                state
+                    .params
+                    .insert(self.name.clone(), chars.into_iter().collect());
+                true
+            } else {
+                false
+            }
+        } else {
+            let mut chars = Vec::with_capacity(16);
+            for ch in picked.chars() {
+                if (self.checker)(ch) {
+                    chars.push(ch);
+                }
+            }
+            if chars.len() >= self.min_width {
+                state.forward(chars.len());
+                state
+                    .params
+                    .insert(self.name.clone(), chars.into_iter().collect());
+                true
+            } else {
+                false
+            }
+        }
+    }
+}
+```
+
+
+
+`CombWisp`
+
+```rust
+#[derive(Debug)]
+struct CombWisp(Vec<Box<dyn PathWisp>>);
+impl PathWisp for CombWisp {
+    fn detect(&self, state: &mut PathState) -> bool {
+        let original_cursor = state.cursor;
+        for child in &self.0 {
+            if !child.detect(state) {
+                state.cursor = original_cursor;
+                return false;
+            }
+        }
+        true
+    }
+}
+```
+
+`NameWisp`
+
+```rust
+#[derive(Debug, Eq, PartialEq)]
+struct NameWisp(String);
+impl PathWisp for NameWisp {
+    fn detect(&self, state: &mut PathState) -> bool {
+        if self.0.starts_with('*') {
+            let rest = state.all_rest().unwrap_or_default();
+            if !rest.is_empty() || self.0.starts_with("**") {
+                let rest = rest.to_string();
+                state.params.insert(self.0.clone(), rest);
+                state.cursor.0 = state.parts.len();
+                true
+            } else {
+                false
+            }
+        } else {
+            let picked = state.pick();
+            if picked.is_none() {
+                return false;
+            } 
+            let picked = picked.unwrap().to_owned();
+            state.forward(picked.len());
+            state.params.insert(self.0.clone(), picked);
+            true
+        }
+    }
+}
+```
+
+`Construct`
+```rust
+#[derive(Eq, PartialEq, Debug)]
+struct ConstWisp(String);
+impl PathWisp for ConstWisp {
+    fn detect(&self, state: &mut PathState) -> bool {
+        let picked = state.pick();
+        if picked.is_none() {
+            return false;
+        }
+        let picked = picked.unwrap();
+        if picked.starts_with(&self.0) {
+            state.forward(self.0.len());
+            true
+        } else {
+            false
+        }
+    }
+}
+```
+
+```rust
+struct PathParser {
+    offset: usize,
+    path: Vec<char>,
+}
+```
+
+```rust
+pub struct PathFilter {
+    raw_value: String,
+    path_wisps: Vec<Box<dyn PathWisp>>,
+}
+```
