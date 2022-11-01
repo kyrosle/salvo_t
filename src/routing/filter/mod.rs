@@ -4,7 +4,7 @@ pub mod opts;
 pub mod others;
 pub mod path;
 
-use hyper::http::uri::Scheme;
+use hyper::{http::uri::Scheme, Method};
 pub use others::*;
 pub use path::*;
 
@@ -92,6 +92,27 @@ pub fn host(host: impl Into<String>, default: bool) -> HostFilter {
 pub fn port(port: u16, default: bool) -> PortFilter {
     PortFilter(port, default)
 }
-pub fn path(path: String, default: bool) -> PathFilter {
-    PathFilter(path.into(), default)
+pub fn path(path: impl Into<String>) -> PathFilter {
+    PathFilter::new(path)
+}
+pub fn get() -> MethodFilter {
+    MethodFilter(Method::GET)
+}
+pub fn head() -> MethodFilter {
+    MethodFilter(Method::HEAD)
+}
+pub fn options() -> MethodFilter {
+    MethodFilter(Method::OPTIONS)
+}
+pub fn post() -> MethodFilter {
+    MethodFilter(Method::POST)
+}
+pub fn patch() -> MethodFilter {
+    MethodFilter(Method::PATCH)
+}
+pub fn put() -> MethodFilter {
+    MethodFilter(Method::PUT)
+}
+pub fn delete() -> MethodFilter {
+    MethodFilter(Method::DELETE)
 }

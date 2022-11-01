@@ -4,7 +4,7 @@ Router can route http requests to different handlers.
 
 Including mapping the url to server service and adding Middlewares etc.
 
-Filter Part
+* __Filter Part__
 
 ## Filter (src/routing/filter/mod.rs)
 `Filter` trait for filter request.
@@ -76,7 +76,7 @@ __use modules__ :
 
 `percent_encoding` : URLs use special characters to indicate the parts of the request. like :
 ```
-"foo <bar>" -> "foo%20%3Cbar%3E"
+"foo <bar>" <=> "foo%20%3Cbar%3E"
 ```
 
 ```rust
@@ -291,7 +291,7 @@ pub trait PathWisp: Send + Sync + fmt::Debug + 'static {
 }
 ```
 
-#### Wisp Builder
+#### Wisp Builder (src/routing/filter/path.rs)
 
 __use modules__ :
 
@@ -300,7 +300,24 @@ This library provides implementations of `Mutex`, `RwLock`, `Condvar` and `Once`
 
 `regex` : Regex
 
-`WispBuilder`
+
+##### `WISP_BUILDERS` static records
+```rust
+static WISP_BUILDERS: Lazy<WispBuilderMap> = Lazy::new(|| {
+    let mut map: HashMap<String, Arc<Box<dyn WispBuilder>>> = HashMap::with_capacity(8);
+    map.insert(
+        "num".into(),
+        Arc::new(Box::new(CharWispBuilder::new(is_num))),
+    );
+    map.insert(
+        "hex".into(),
+        Arc::new(Box::new(CharWispBuilder::new(is_hex))),
+    );
+    RwLock::new(map)
+});
+```
+
+##### `WispBuilder`
 ```rust
 pub trait WispBuilder: Send + Sync {
     fn build(
@@ -312,13 +329,12 @@ pub trait WispBuilder: Send + Sync {
 }
 ```
 
-`WispBuilderMap`
+##### `WispBuilderMap`
 ```rust
 type WispBuilderMap = RwLock<HashMap<String, Arc<Box<dyn WispBuilder>>>>;
 ```
 
-
-`RegexWisp`
+##### `RegexWisp`
 ```rust
 #[derive(Debug)]
 struct RegexWisp {
@@ -372,7 +388,7 @@ impl PathWisp for RegexWisp {
 }
 ```
 
-`RegexWispBuilder`
+##### `RegexWispBuilder`
 ```rust
 pub struct RegexWispBuilder(Regex);
 impl RegexWispBuilder {
@@ -381,20 +397,15 @@ impl RegexWispBuilder {
     }
 }
 ```
+* impl `WispBuilder` trait
 
-`CharWispBuilder`
+##### `CharWisp`
 ```rust
 struct CharWisp<C> {
     name: String,
     checker: Arc<C>,
     min_width: usize,
     max_width: Option<usize>,
-}
-pub struct CharWispBuilder<C>(Arc<C>);
-impl<C> CharWispBuilder<C> {
-    pub fn new(checker: C) -> Self {
-        Self(Arc::new(checker))
-    }
 }
 ```
 
@@ -456,9 +467,20 @@ where
 }
 ```
 
+##### `CharWispBuilder`
+```rust
+pub struct CharWispBuilder<C>(Arc<C>);
+impl<C> CharWispBuilder<C> {
+    pub fn new(checker: C) -> Self {
+        Self(Arc::new(checker))
+    }
+}
+```
+* impl `WispBuilder` trait for `CharWispBuilder` 
 
 
-`CombWisp`
+
+##### `CombWisp`
 
 ```rust
 #[derive(Debug)]
@@ -477,7 +499,7 @@ impl PathWisp for CombWisp {
 }
 ```
 
-`NameWisp`
+##### `NameWisp`
 
 ```rust
 #[derive(Debug, Eq, PartialEq)]
@@ -508,7 +530,7 @@ impl PathWisp for NameWisp {
 }
 ```
 
-`Construct`
+##### `ConstWisp`
 ```rust
 #[derive(Eq, PartialEq, Debug)]
 struct ConstWisp(String);
@@ -529,6 +551,8 @@ impl PathWisp for ConstWisp {
 }
 ```
 
+
+##### `PathParser`
 ```rust
 struct PathParser {
     offset: usize,
@@ -536,9 +560,142 @@ struct PathParser {
 }
 ```
 
+__functions__ :
+
+`next(&mut self, skip_blanks: bool) -> Option<char>` 
+
+`peek(&mut self, skip_blanks: bool) -> Option<char>` 
+
+`curr(&self) -> Option<char>` 
+
+```rust
+[PathParser]
+fn scan_ident(&mut self) -> Result<String, String> {
+    let mut ident = "".to_owned();
+    let mut ch = self
+        .curr()
+        .ok_or_else(|| "current position is out of index when scan ident".to_owned())?;
+
+    let characters = vec!['/', ':', '<', '>', '[', ']', '(', ')'];
+    while !characters.contains(&ch) {
+        ident.push(ch);
+        if let Some(c) = self.next(false) {
+            ch = c;
+        } else {
+            break;
+        }
+    }
+    if ident.is_empty() {
+        Err("ident segment is empty".to_owned())
+    } else {
+        Ok(ident)
+    }
+}
+```
+
+```rust
+[PathParser]
+fn scan_regex(&mut self) -> Result<String, String> {
+    let mut regex = "".to_owned();
+    let mut ch = self
+        .curr()
+        .ok_or_else(|| "current position is out of index when scan ident".to_owned())?;
+    loop {
+        regex.push(ch);
+        if let Some(c) = self.next(false) {
+            ch = c;
+            if ch == '/' {
+                let pch = self.peek(true);
+                if pch.is_none() {
+                    return Err("path end but regex is not ended".to_owned());
+                } else if let Some('>') = pch {
+                    self.next(true);
+                    break;
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    if regex.is_empty() {
+        Err("regex segment is empty".to_owned())
+    } else {
+        Ok(regex)
+    }
+}
+```
+
+```rust
+[PathParser]
+fn scan_const(&mut self) -> Result<String, String> {
+    let mut cnst = "".to_owned();
+    let mut ch = self
+        .curr()
+        .ok_or_else(|| "current position is out of index when scan ident".to_owned())?;
+
+    let characters = vec!['/', ':', '<', '>', '[', ']', '(', ')'];
+    while !characters.contains(&ch) {
+        cnst.push(ch);
+        if let Some(c) = self.next(false) {
+            ch = c;
+        } else {
+            break;
+        }
+    }
+    if cnst.is_empty() {
+        Err("const segment is empty".to_owned())
+    } else {
+        Ok(cnst)
+    }
+}
+```
+
+`skip_blanks(&mut self)`
+
+`skip_slashes(&mut self)`
+
+`fn scan_wisps(&mut self) -> Result<Vec<Box<dyn PathWisp>>, String>` status machine analytical
+
+`fn parse(&mut self) -> Result<Vec<Box<dyn PathWisp>>, String>`
+
+##### `PathFilter`
 ```rust
 pub struct PathFilter {
     raw_value: String,
     path_wisps: Vec<Box<dyn PathWisp>>,
 }
 ```
+* Filter request by it's path information.
+impl `fmt::Debug` and `Filter` traits.
+
+`register_path_filter<B>(name: impl Into<String>) where B: WispBuilder + 'static`
+
+`register_wisp_regex(name: impl Into<String>, regex: Regex)`
+
+`detect(&self, state: &mut PathState) -> bool` 
+* used in `Filter` trait
+
+#### Filter Request
+
+`fn scheme(scheme: Scheme, default: bool) -> SchemeFilter`
+
+`fn host(host: impl Into<String>, default: bool) -> HostFilter`
+
+`fn port(port: impl Into<String>, default: bool) -> PortFilter`
+
+`fn path(path: impl Into<String>) -> PathFilter`
+
+`fn get() -> MethodFilter`
+
+`fn head() -> MethodFilter` 
+
+`fn options() -> MethodFilter`
+
+`fn post() -> MethodFilter`
+
+`fn patch() -> MethodFilter`
+
+`fn put() -> MethodFilter`
+
+`fn delete() -> MethodFilter`
+

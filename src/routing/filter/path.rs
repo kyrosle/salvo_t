@@ -1,10 +1,18 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::HashMap,
+    f32::consts::E,
+    fmt::{self, format},
+    sync::Arc,
+    vec,
+};
 
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use regex::Regex;
 
 use crate::routing::PathState;
+
+use super::Filter;
 
 pub trait PathWisp: Send + Sync + 'static + fmt::Debug {
     fn type_id(&self) -> std::any::TypeId {
@@ -29,6 +37,14 @@ type WispBuilderMap = RwLock<HashMap<String, Arc<Box<dyn WispBuilder>>>>;
 
 static WISP_BUILDERS: Lazy<WispBuilderMap> = Lazy::new(|| {
     let mut map: HashMap<String, Arc<Box<dyn WispBuilder>>> = HashMap::with_capacity(8);
+    map.insert(
+        "num".into(),
+        Arc::new(Box::new(CharWispBuilder::new(is_num))),
+    );
+    map.insert(
+        "hex".into(),
+        Arc::new(Box::new(CharWispBuilder::new(is_hex))),
+    );
     RwLock::new(map)
 });
 
@@ -187,6 +203,80 @@ pub struct CharWispBuilder<C>(Arc<C>);
 impl<C> CharWispBuilder<C> {
     pub fn new(checker: C) -> Self {
         Self(Arc::new(checker))
+    }
+}
+impl<C> WispBuilder for CharWispBuilder<C>
+where
+    C: Fn(char) -> bool + Send + Sync + 'static,
+{
+    fn build(
+        &self,
+        name: String,
+        sign: String,
+        args: Vec<String>,
+    ) -> Result<Box<dyn PathWisp>, String> {
+        if args.is_empty() {
+            return Ok(Box::new(CharWisp {
+                name,
+                checker: self.0.clone(),
+                min_width: 1,
+                max_width: None,
+            }));
+        }
+        let ps = args[0]
+            .splitn(2, "..")
+            .map(|s| s.trim())
+            .collect::<Vec<_>>();
+        let (min_width, max_width) = if ps.is_empty() {
+            (1, None)
+        } else {
+            let min = if ps[0].is_empty() {
+                1
+            } else {
+                let min = ps[0]
+                    .parse::<usize>()
+                    .map_err(|_| format!("parse range for {} failed", name))?;
+                if min < 1 {
+                    return Err("min_width must be greater or equal to 1".to_owned());
+                }
+                min
+            };
+
+            if ps.len() == 1 {
+                (min, None)
+            } else {
+                let max = ps[1];
+                if max.is_empty() {
+                    (min, None)
+                } else {
+                    let trimmed_max = max.trim_end_matches('=');
+                    let max = if trimmed_max == max {
+                        let max = trimmed_max
+                            .parse::<usize>()
+                            .map_err(|_| format!("parse range for {} failed", name))?;
+                        if max <= 1 {
+                            return Err("max_width must be greater or equal to 1".to_owned());
+                        }
+                        max - 1
+                    } else {
+                        let max = trimmed_max
+                            .parse::<usize>()
+                            .map_err(|_| format!("parse range for {} failed", name))?;
+                        if max < 1 {
+                            return Err("min_width must be greater or equal to 1".to_owned());
+                        }
+                        max
+                    };
+                    (min, Some(max))
+                }
+            }
+        };
+        Ok(Box::new(CharWisp {
+            name,
+            checker: self.0.clone(),
+            min_width,
+            max_width,
+        }))
     }
 }
 
@@ -369,11 +459,247 @@ impl PathParser {
         }
     }
     fn skip_blanks(&mut self) {
-        todo!()
+        if let Some(mut ch) = self.curr() {
+            while ch == ' ' || ch == '\t' {
+                if self.offset < self.path.len() - 1 {
+                    self.offset += 1;
+                    ch = self.path[self.offset];
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    fn skip_slashes(&mut self) {
+        if let Some(mut ch) = self.curr() {
+            while ch == '/' {
+                if let Some(c) = self.next(false) {
+                    ch = c;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    fn scan_wisps(&mut self) -> Result<Vec<Box<dyn PathWisp>>, String> {
+        let mut ch = self
+            .curr()
+            .ok_or_else(|| "current position is out of index when scan the part".to_owned())?;
+        let mut wisps: Vec<Box<dyn PathWisp>> = vec![];
+        while ch != '/' {
+            if ch == '<' {
+                self.next(true)
+                    .ok_or_else(|| "char is needed after <".to_owned())?;
+                let name = self.scan_ident()?;
+                if name.is_empty() {
+                    return Err("name is empty string".to_owned());
+                }
+                self.skip_blanks();
+                ch = self
+                    .curr()
+                    .ok_or_else(|| "current position is out of index".to_owned())?;
+                if ch == ':' {
+                    let is_slash = match self.next(true) {
+                        Some(c) => c == '/',
+                        None => false,
+                    };
+                    if !is_slash {
+                        let sign = self.scan_ident()?;
+                        self.skip_blanks();
+                        let lb = self
+                            .curr()
+                            .ok_or_else(|| "path ended unexpected".to_owned())?;
+                        let args = if lb == '[' || lb == '(' {
+                            let rb = if lb == '[' { ']' } else { ')' };
+                            let mut args = "".to_owned();
+                            ch = self
+                                .next(true)
+                                .ok_or_else(|| "current position is out of index".to_owned())?;
+                            while ch != rb {
+                                args.push(ch);
+                                if let Some(c) = self.next(false) {
+                                    ch = c;
+                                } else {
+                                    break;
+                                }
+                            }
+                            if self.next(false).is_none() {
+                                return Err(format!("ended unexpected, should end with: {}", rb));
+                            }
+                            if args.is_empty() {
+                                vec![]
+                            } else {
+                                args.split(',').map(|s| s.trim().to_owned()).collect()
+                            }
+                        } else if lb == '>' {
+                            vec![]
+                        } else {
+                            return Err(format!(
+                                "expected any char of '/,[,(', but found {:?} at offset: {}",
+                                self.curr(),
+                                self.offset
+                            ));
+                        };
+                        let builders = WISP_BUILDERS.read();
+                        let builder = builders
+                            .get(&sign)
+                            .ok_or_else(|| {
+                                format!(
+                                    "WISP_BUILDERS does not contains fn part with sign {}",
+                                    sign
+                                )
+                            })?
+                            .clone();
+                        wisps.push(builder.build(name, sign, args)?);
+                    } else {
+                        self.next(false);
+                        let regex = Regex::new(&self.scan_regex()?).map_err(|e| e.to_string())?;
+                        wisps.push(Box::new(RegexWisp::new(name, regex)));
+                    }
+                } else if ch == '>' {
+                    wisps.push(Box::new(NameWisp(name)));
+                    if !self.peek(false).map(|c| c == '/').unwrap_or(true) {
+                        return Err(format!(
+                            "named part must be the last one in current segment, expect '/' or end, but found {:?} at offset: {}" ,
+                            self.curr(),
+                            self.offset
+                        ));
+                    }
+                }
+                if let Some(c) = self.curr() {
+                    if c != '>' {
+                        return Err(format!(
+                            "expect '>' to end regex part or fn part, but found {:?} at offset: {}",
+                            c, self.offset
+                        ));
+                    } else {
+                        self.next(false);
+                    }
+                } else {
+                    break;
+                }
+            } else {
+                let part = self.scan_const().unwrap_or_default();
+                if part.is_empty() {
+                    return Err("const part is empty string".to_owned());
+                }
+                wisps.push(Box::new(ConstWisp(part)));
+            }
+            if let Some(c) = self.curr() {
+                if c == '/' {
+                    break;
+                }
+                ch = c;
+            } else {
+                break;
+            }
+        }
+        Ok(wisps)
+    }
+
+    fn parse(&mut self) -> Result<Vec<Box<dyn PathWisp>>, String> {
+        let mut wisps: Vec<Box<dyn PathWisp>> = vec![];
+        if self.path.is_empty() {
+            return Ok(wisps);
+        }
+        loop {
+            self.skip_slashes();
+            if self.offset >= self.path.len() {
+                break;
+            }
+            if self.curr().map(|c| c == '/').unwrap_or(false) {
+                return Err(format!(
+                    "'/' is not allowed after '/' at offset {:?}",
+                    self.offset
+                ));
+            }
+            let mut scaned = self.scan_wisps()?;
+            if scaned.len() > 1 {
+                wisps.push(Box::new(CombWisp(scaned)));
+            } else if !scaned.is_empty() {
+                wisps.push(scaned.pop().unwrap());
+            } else {
+                return Err("scan parts is empty".to_owned());
+            }
+            if self.curr().map(|c| c != '/').unwrap_or(false) {
+                return Err(format!(
+                    "expect '/', but found {:?} at offset {:?}",
+                    self.curr(),
+                    self.offset
+                ));
+            }
+            self.next(true);
+            if self.offset >= self.path.len() - 1 {
+                break;
+            }
+        }
+        Ok(wisps)
     }
 }
 
 pub struct PathFilter {
     raw_value: String,
     path_wisps: Vec<Box<dyn PathWisp>>,
+}
+
+impl fmt::Debug for PathFilter {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "path:{}", &self.raw_value)
+    }
+}
+
+impl Filter for PathFilter {
+    fn filter(&self, _req: &mut crate::http::request::Request, state: &mut PathState) -> bool {
+        self.detect(state)
+    }
+}
+
+impl PathFilter {
+    pub fn new(value: impl Into<String>) -> PathFilter {
+        let raw_value: String = value.into();
+        if raw_value.is_empty() {
+            tracing::warn!("you should not add empty string as path filter");
+        } else if raw_value == "/" {
+            tracing::warn!("you should not add '/' as path filter");
+        }
+        let mut parser = PathParser::new(&raw_value);
+        let path_wisps = match parser.parse() {
+            Ok(path_wisps) => path_wisps,
+            Err(e) => {
+                panic!("{}", e);
+            }
+        };
+        PathFilter {
+            raw_value,
+            path_wisps,
+        }
+    }
+    pub fn register_wisp_builder<B>(name: impl Into<String>, builder: B)
+    where
+        B: WispBuilder + 'static,
+    {
+        let mut builders = WISP_BUILDERS.write();
+        builders.insert(name.into(), Arc::new(Box::new(builder)));
+    }
+    pub fn detect(&self, state: &mut PathState) -> bool {
+        let original_cursor = state.cursor;
+        for ps in &self.path_wisps {
+            let row = state.cursor.0;
+            if ps.detect(state) {
+                if row == state.cursor.0 && row != state.parts.len() {
+                    state.cursor = original_cursor;
+                    return false;
+                } else {
+                    state.cursor = original_cursor;
+                    return false;
+                }
+            }
+        }
+        true
+    }
+}
+
+// TODO: path.rs tests
+#[cfg(test)]
+mod tests {
 }
