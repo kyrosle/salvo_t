@@ -4,7 +4,7 @@ Router can route http requests to different handlers.
 
 Including mapping the url to server service and adding Middlewares etc.
 
-* __Filter Part__
+* Now Building the __Filter Part__ and  __Url Wisp Match Part__.
 
 ## Filter (src/routing/filter/mod.rs)
 `Filter` trait for filter request.
@@ -16,7 +16,6 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
-
     /// Create a new filter use ```And``` filter.
     fn and<F>(self, other: F) -> And<Self, F>
     where
@@ -28,7 +27,6 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
             second: other,
         }
     }
-
     /// Create a new filter use ```Or``` filter.
     fn or<F>(self, other: F) -> Or<Self, F>
     where
@@ -40,7 +38,6 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
             second: other,
         }
     }
-
     /// Create a new filter use ```AndThen``` filter.
     fn and_then<F>(self, fun: F) -> AndThen<Self, F>
     where
@@ -52,7 +49,6 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
             callback: fun,
         }
     }
-
     /// Create a new filter use ```OrElse``` filter.
     fn or_else<F>(self, fun: F) -> OrElse<Self, F>
     where
@@ -64,11 +60,12 @@ pub trait Filter: fmt::Debug + Send + Sync + 'static {
             callback: fun,
         }
     }
-
     /// Filter ```Request``` and returns false or true.
     fn filter(&self, req: &mut Request, path: &mut PathState) -> bool;
 }
 ```
+
+---
 
 ### PathState
 
@@ -102,6 +99,7 @@ fn decode_url_path_safely(path: &str) -> String {
 __Functions__ :
 
 New from url_path string :
+* split the url by the separator '/'
 ```rust
 [PathState]
 pub fn new(url_path: &str) -> Self {
@@ -129,7 +127,7 @@ pub fn new(url_path: &str) -> Self {
 ```
 
 Pick :
-
+* as iterator trait, you can pick the parts[cursor] value
 ```rust
 [PathState]
 pub fn pick(&self) -> Option<&str> {
@@ -148,7 +146,7 @@ pub fn pick(&self) -> Option<&str> {
 ```
 
 Get all rest : 
-
+* get all value : parts[cursor.array_index][cursor.row_index]..rest and join with '/'
 ```rust
 [PathState]
 pub fn all_rest(&self) -> Option<Cow<'_, str>> {
@@ -173,7 +171,9 @@ pub fn all_rest(&self) -> Option<Cow<'_, str>> {
 }
 ```
 
-others : 
+`forward` and `ended` : 
+* `forward` cursor move forward
+* `ended` judge the cursor position wether is the parts[] array end;
 
 ```rust
 pub fn forward(&mut self, steps: usize) {
@@ -193,16 +193,21 @@ pub fn ended(&self) -> bool {
 }
 ```
 
+---
+
 ### opts (src/routing/filter/opts.rs)
 
+__Filter condition :__
+
 #### Or
+Filter || Filter
 ```rust
 pub struct Or<T, U> {
     pub(super) first: T,
     pub(super) second: U,
 }
 ```
-
+Filter || Filter -> fn
 #### OrElse
 ```rust
 pub struct OrElse<T, F> {
@@ -211,6 +216,7 @@ pub struct OrElse<T, F> {
 }
 ```
 
+Filter && Filter
 #### And
 ```rust
 pub struct And<T, U> {
@@ -218,7 +224,7 @@ pub struct And<T, U> {
     pub(super) second: U,
 }
 ```
-
+Filter && Filter -> fn
 #### AndThen
 ```rust
 pub struct AndThen<T, F> {
@@ -230,27 +236,35 @@ pub struct AndThen<T, F> {
 
 `Or` , `OrElse` , `And` and `AndThen` are implemented trait `Filter`
 
-### Filter Request (src/routing/mod.rs)
+---
+
+### Filter Request (src/routing/filter/mod.rs)
 
 `FnFilter`
+* Accept a function as it's param, use this function to filter request.
+* which the type `F` should have `Fn(&mut Request, &mut PathState) -> bool`
 ```rust
 #[derive(Copy, Clone)]
 #[allow(missing_debug_implementations)]
 pub struct FnFilter<F>(pub F);
 ```
 * implement `fmt::Debug` trait and `Filter` trait
-
-#### others (src/routing/others.rs)
+---
+#### Others (src/routing/others.rs)
 
 `MethodFilter`
-Filter by request method
+Filter by request method 
+* `http::method::Method`
 ```rust
 #[derive(Clone, PartialEq, Eq)]
 pub struct MethodFilter(pub Method);
 ```
 * implement `fmt::Debug` trait and `Filter` trait
+---
+
 
 `SchemeFilter` 
+* 
 Filter by request uri scheme.
 ```rust
 #[derive(Clone, PartialEq, Eq)]
@@ -258,6 +272,7 @@ pub struct SchemeFilter(pub Scheme, pub bool);
 ```
 * implement `fmt::Debug` trait and `Filter` trait
 
+---
 `HostFilter` 
 Filter by request uri host.
 ```rust
@@ -266,6 +281,7 @@ pub struct HostFilter(pub String, pub bool);
 ```
 * implement `fmt::Debug` trait and `Filter` trait
 
+---
 `PortFilter` Filter by request uri host.
 ```rust
 #[derive(Clone, PartialEq, Eq)]
@@ -273,7 +289,9 @@ pub struct PortFilter(pub u16, pub bool);
 ```
 * implement `fmt::Debug` trait and `Filter` trait
 
-#### path (src/routing/path.rs)
+---
+
+#### Path (src/routing/path.rs)
 
 Trait `PathWisp`
 ```rust
@@ -291,7 +309,18 @@ pub trait PathWisp: Send + Sync + fmt::Debug + 'static {
 }
 ```
 
+---
+
 #### Wisp Builder (src/routing/filter/path.rs)
+
+common rules:
+```
+<id:num> 
+<id:num[n]>
+<id:num(range)>
+<*> 
+<**> including the pre-path part
+```
 
 __use modules__ :
 
@@ -301,7 +330,8 @@ This library provides implementations of `Mutex`, `RwLock`, `Condvar` and `Once`
 `regex` : Regex
 
 
-##### `WISP_BUILDERS` static records
+##### `WISP_BUILDERS` 
+* Static records
 ```rust
 static WISP_BUILDERS: Lazy<WispBuilderMap> = Lazy::new(|| {
     let mut map: HashMap<String, Arc<Box<dyn WispBuilder>>> = HashMap::with_capacity(8);
@@ -318,6 +348,7 @@ static WISP_BUILDERS: Lazy<WispBuilderMap> = Lazy::new(|| {
 ```
 
 ##### `WispBuilder`
+Build the `PathWisp` trait structure
 ```rust
 pub trait WispBuilder: Send + Sync {
     fn build(
@@ -343,6 +374,12 @@ struct RegexWisp {
 }
 ```
 * impl `PartialEq` , `PathWisp`
+
+example :
+```rust
+register regex `guid`
+using path : /articles/<id:guid>
+```
 
 `PathWisp::detect` function:
 ```rust
@@ -409,59 +446,55 @@ struct CharWisp<C> {
 }
 ```
 
+* `C: Fn(char) -> bool`
 * impl `fmt::Debug` trait and `PathWisp` trait
 
 `PathWisp::detect` function :
 ```rust
-impl<C> PathWisp for CharWisp<C>
-where
-    C: Fn(char) -> bool + Send + Sync + 'static,
-{
-    fn detect(&self, state: &mut PathState) -> bool {
-        let picked = state.pick();
-        if picked.is_none() {
-            return false;
+fn detect(&self, state: &mut PathState) -> bool {
+    let picked = state.pick();
+    if picked.is_none() {
+        return false;
+    }
+    let picked = picked.unwrap();
+    if let Some(max_width) = self.max_width {
+        let mut chars = Vec::with_capacity(max_width);
+        for ch in picked.chars() {
+            if (self.checker)(ch) {
+                chars.push(ch);
+            }
+            if chars.len() == max_width {
+                state.forward(max_width);
+                state
+                    .params
+                    .insert(self.name.clone(), chars.into_iter().collect());
+                return true;
+            }
         }
-        let picked = picked.unwrap();
-        if let Some(max_width) = self.max_width {
-            let mut chars = Vec::with_capacity(max_width);
-            for ch in picked.chars() {
-                if (self.checker)(ch) {
-                    chars.push(ch);
-                }
-                if chars.len() == max_width {
-                    state.forward(max_width);
-                    state
-                        .params
-                        .insert(self.name.clone(), chars.into_iter().collect());
-                    return true;
-                }
-            }
-            if chars.len() >= self.min_width {
-                state.forward(chars.len());
-                state
-                    .params
-                    .insert(self.name.clone(), chars.into_iter().collect());
-                true
-            } else {
-                false
-            }
+        if chars.len() >= self.min_width {
+            state.forward(chars.len());
+            state
+                .params
+                .insert(self.name.clone(), chars.into_iter().collect());
+            true
         } else {
-            let mut chars = Vec::with_capacity(16);
-            for ch in picked.chars() {
-                if (self.checker)(ch) {
-                    chars.push(ch);
-                }
+            false
+        }
+    } else {
+        let mut chars = Vec::with_capacity(16);
+        for ch in picked.chars() {
+            if (self.checker)(ch) {
+                chars.push(ch);
             }
-            if chars.len() >= self.min_width {
-                state.forward(chars.len());
-                state
-                    .params
-                    .insert(self.name.clone(), chars.into_iter().collect());
-                true
-            } else {
-                false
-            }
+        }
+        if chars.len() >= self.min_width {
+            state.forward(chars.len());
+            state
+                .params
+                .insert(self.name.clone(), chars.into_iter().collect());
+            true
+        } else {
+            false
         }
     }
 }
@@ -476,8 +509,8 @@ impl<C> CharWispBuilder<C> {
     }
 }
 ```
+* `C: Fn(char) -> bool`
 * impl `WispBuilder` trait for `CharWispBuilder` 
-
 
 
 ##### `CombWisp`
@@ -666,6 +699,7 @@ pub struct PathFilter {
 }
 ```
 * Filter request by it's path information.
+
 impl `fmt::Debug` and `Filter` traits.
 
 `register_path_filter<B>(name: impl Into<String>) where B: WispBuilder + 'static`

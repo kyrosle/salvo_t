@@ -20,7 +20,7 @@ working-log are in the ./worklog/*
 
 [Part03](./worklog/Part03.md) Build `Handler`
 
-[part04](./worklog/Part04.md) Build `Filter`
+[part04](./worklog/Part04.md) Build `Filter` , Wisp Matcher
 
 [Part05](./worklog/Part05.md) Build `Router`
 

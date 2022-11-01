@@ -6,7 +6,7 @@ async fn hello_world() -> &'static str {
     "Hello world"
 }
 ```
-Here are about this  marco `handler` : 
+Here are about How to build this marco `handler` : 
 
 ## `Handler` (src/handler.rs)
 
@@ -41,11 +41,9 @@ async fn main() {
 ```rust
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
-    #[doc(hidden)]
     fn type_id(&self) -> std::any::TypeId {
         std::any::TypeId::of::<Self>()
     }
-    #[doc(hidden)]
     fn type_name(&self) -> &'static str {
         std::any::type_name::<Self>()
     }
@@ -61,9 +59,11 @@ pub trait Handler: Send + Sync + 'static {
 }
 ```
 
-This is a empty implement for `Handler`.
+`empty_handler`
 
-`empty_handler` does nothing except set [`Response`]'s satus as [`StatusCode::OK`], it just marker a router exits.
+This is a empty implement for `Handler` :
+
+`empty_handler` does nothing except set [`Response`]'s status as [`StatusCode::OK`], it just marker a router exits.
 ```rust
 #[allow(non_camel_case_types)]
 pub struct empty_handler;
@@ -76,6 +76,8 @@ impl Handler for empty_handler {
 ```
 
 `Skipper` is used in many middlewares.
+* check the request arrival wether should be skipped.
+* implement for all type `Fn(&mut Request, &Depot) -> bool`, using self function
 ```rust
 pub trait Skipper: Send + Sync + 'static {
     /// Check if the request should be skipped.
