@@ -1,11 +1,14 @@
-use std::sync::Arc;
+use std::{
+    fmt::{self, format, Formatter},
+    sync::Arc,
+};
 
 use hyper::http::uri::Scheme;
 
 use crate::{handler::Handler, http::request::Request};
 
 use super::{
-    filter::{self, Filter},
+    filter::{self, Filter, FnFilter, PathFilter},
     PathState,
 };
 
@@ -25,6 +28,16 @@ impl Default for Router {
     fn default() -> Self {
         Self::new()
     }
+}
+
+macro_rules! method_server {
+    ($($name: ident),*) => {
+        $(
+            pub fn $name<H: Handler>(self, handler: H) -> Self {
+                self.push(Router::with_filter(filter::$name()).handle(handler))
+            }
+        )*
+    };
 }
 
 impl Router {
@@ -109,10 +122,10 @@ impl Router {
     }
 
     pub fn with_path(path: impl Into<String>) -> Self {
-        todo!()
+        Router::with_filter(PathFilter::new(path))
     }
     pub fn path(self, path: impl Into<String>) -> Self {
-        todo!()
+        self.filter(PathFilter::new(path))
     }
 
     pub fn with_filter(filter: impl Filter + Sized) -> Self {
@@ -126,13 +139,13 @@ impl Router {
     where
         T: Fn(&mut Request, &mut PathState) -> bool + Send + Sync + 'static,
     {
-        todo!()
+        Router::with_filter(FnFilter(func))
     }
-    pub fn filter_fn<T>(func: T) -> Self
+    pub fn filter_fn<T>(self, func: T) -> Self
     where
         T: Fn(&mut Request, &mut PathState) -> bool + Send + Sync + 'static,
     {
-        todo!()
+        self.filter(FnFilter(func))
     }
 
     pub fn handle<H: Handler>(mut self, handler: H) -> Self {
@@ -150,5 +163,66 @@ impl Router {
     }
     pub fn host(self, host: impl Into<String>, default: bool) -> Self {
         self.filter(filter::host(host, default))
+    }
+    pub fn port(self, port: u16, default: bool) -> Self {
+        self.filter(filter::port(port, default))
+    }
+    method_server!(get, post, put, delete, patch, head, options);
+}
+
+const SYMBOL_DOWN: &str = "│";
+const SYMBOL_TEE: &str = "├";
+const SYMBOL_ELL: &str = "└";
+const SYMBOL_RIGHT: &str = "─";
+
+impl fmt::Debug for Router {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        fn print(f: &mut Formatter, prefix: &str, last: bool, router: &Router) -> fmt::Result {
+            let mut path = "".to_owned();
+            let mut others = Vec::with_capacity(router.filters.len());
+            if router.filters.is_empty() {
+                path = "!NULL!".to_owned();
+            } else {
+                for filter in &router.filters {
+                    let info = format!("{:?}", filter);
+                    if info.starts_with("path:") {
+                        path = info.split_once(':').unwrap().1.to_owned();
+                    } else {
+                        let mut parts = info.splitn(2, ':').collect::<Vec<_>>();
+                        if !parts.is_empty() {
+                            others.push(parts.pop().unwrap().to_owned());
+                        }
+                    }
+                }
+            }
+            let cp = if last {
+                format!("{}{}{}{}", prefix, SYMBOL_ELL, SYMBOL_RIGHT, SYMBOL_RIGHT)
+            } else {
+                format!("{}{}{}{}", prefix, SYMBOL_TEE, SYMBOL_RIGHT, SYMBOL_RIGHT)
+            };
+            let hd = if let Some(handler) = &router.handler {
+                format!(" -> {}", handler.type_name())
+            } else {
+                "".into()
+            };
+            if !others.is_empty() {
+                writeln!(f, "{}{}[{}]{}", cp, path, others.join(","), hd)?;
+            } else {
+                writeln!(f, "{}{}{}", cp, path, hd)?;
+            }
+            let routers = router.routers();
+            if !routers.is_empty() {
+                let np = if last {
+                    format!("{}    ", prefix)
+                } else {
+                    format!("{}{}   ", prefix, SYMBOL_DOWN)
+                };
+                for (i, router) in routers.iter().enumerate() {
+                    print(f, &np, i == routers.len() - 1, router)?;
+                }
+            }
+            Ok(())
+        }
+        print(f, "", true, self)
     }
 }

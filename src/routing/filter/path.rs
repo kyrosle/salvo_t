@@ -689,10 +689,10 @@ impl PathFilter {
                 if row == state.cursor.0 && row != state.parts.len() {
                     state.cursor = original_cursor;
                     return false;
-                } else {
-                    state.cursor = original_cursor;
-                    return false;
                 }
+            } else {
+                state.cursor = original_cursor;
+                return false;
             }
         }
         true
@@ -701,5 +701,4 @@ impl PathFilter {
 
 // TODO: path.rs tests
 #[cfg(test)]
-mod tests {
-}
+mod tests {}
