@@ -1,7 +1,7 @@
 use std::{borrow::Cow, collections::HashMap, fmt::format, sync::Arc};
 
 pub mod filter;
-mod router;
+pub mod router;
 
 use crate::{
     depot::Depot,

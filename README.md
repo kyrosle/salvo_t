@@ -24,7 +24,7 @@ working-log are in the ./worklog/*
 
 [Part05](./worklog/Part05.md) Build `Router`
 
-[Part06]() Build `Service`
+[Part06](./worklog/Part06.md) Build `Cather`, `Service`, `Transport`
 
 [Part07]() Build `Server`
 
