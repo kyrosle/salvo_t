@@ -70,6 +70,8 @@ pub struct Request {
 }
 ```
 
+* impl `fmt::Debug` , `Default` and `From<hyper::Request<ReqBody>>` trait.
+
 __functions__ :
 
 Read field with `T(take)`, `&T(&)`, `&mut T(&mut)` types functions.

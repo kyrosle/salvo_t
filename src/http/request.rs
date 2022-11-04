@@ -53,6 +53,57 @@ impl fmt::Debug for Request {
     }
 }
 
+impl Default for Request {
+    fn default() -> Self {
+        Request::new()
+    }
+}
+
+impl From<hyper::Request<ReqBody>> for Request {
+    fn from(req: hyper::Request<ReqBody>) -> Self {
+        let (
+            hyper::http::request::Parts {
+                method,
+                uri,
+                version,
+                headers,
+                extensions,
+                ..
+            },
+            body,
+        ) = req.into_parts();
+
+        let cookies = if let Some(header) = headers.get("Cookie") {
+            let mut cookie_jar = CookieJar::new();
+            if let Ok(header) = header.to_str() {
+                for cookie_str in header.split(';').map(|s| s.trim()) {
+                    if let Ok(cookie) = Cookie::parse_encoded(cookie_str).map(|c| c.into_owned()) {
+                        cookie_jar.add_original(cookie);
+                    }
+                }
+            }
+            cookie_jar
+        } else {
+            CookieJar::new()
+        };
+
+        Request {
+            uri,
+            headers,
+            body: Some(body),
+            extensions,
+            method,
+            cookies,
+            queries: OnceCell::new(),
+            params: HashMap::new(),
+            form_data: tokio::sync::OnceCell::new(),
+            payload: tokio::sync::OnceCell::new(),
+            version,
+            remote_addr: None,
+        }
+    }
+}
+
 impl Request {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Request {

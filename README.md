@@ -26,6 +26,6 @@ working-log are in the ./worklog/*
 
 [Part06](./worklog/Part06.md) Build `Cather`, `Service`, `Transport`
 
-[Part07]() Build `Server`
-
 [Part08]() Build `Listener`
+
+[Part07]() Build `Server`

@@ -1,15 +1,19 @@
-use std::sync::Arc;
+use std::{pin::Pin, sync::Arc};
 
 use futures::Future;
+use futures_util::future;
 use hyper::{header::CONTENT_TYPE, StatusCode};
 use mime::Mime;
 
+use std::io::Error as IoError;
+
 use crate::{
     addr::SocketAddr,
-    catcher::{self, Catcher, CatcherImpl},
+    catcher::{Catcher, CatcherImpl},
     depot::Depot,
     http::{request::Request, response::Response},
     routing::{router::Router, FlowCtrl, PathState},
+    transport::Transport,
 };
 
 pub struct Service {
@@ -150,5 +154,45 @@ impl HyperHandler {
             }
             res
         }
+    }
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Body>> for HyperHandler {
+    type Response = hyper::Response<hyper::body::Body>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn call(&mut self, req: hyper::Request<hyper::body::Body>) -> Self::Future {
+        let response = self.handle(req.into());
+        let fut = async move {
+            let mut hyper_response = hyper::Response::<hyper::Body>::new(hyper::Body::empty());
+            response.await.write_back(&mut hyper_response).await;
+            Ok(hyper_response)
+        };
+        Box::pin(fut)
+    }
+}
+
+impl<'t, T> hyper::service::Service<&'t T> for Service
+where
+    T: Transport,
+{
+    type Response = HyperHandler;
+    type Error = IoError;
+    type Future = future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        Ok(()).into()
+    }
+    fn call(&mut self, req: &'t T) -> Self::Future {
+        future::ok(self.hyper_handler(req.remote_addr()))
     }
 }

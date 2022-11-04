@@ -148,6 +148,7 @@ Get allowed media types list.
 `fn with_allow_catchers<T>(mut self, allowed_media_types: T) -> Self`
 * where `T: Into<Arc<Vec<Mime>>>`
 
+--- 
 using struct :
 ```rust
 #[derive(Clone)]
@@ -242,8 +243,34 @@ impl HyperHandler {
 ```
 `pub fn hyper_handler(&self, remote_addr: Option<SocketAddr>) -> HyperHandler `
 
+impl `hyper::service::Service<hyper::Request<hyper::body::Body>>` trait : 
 
-| Handle `Request` and returns `Response`.
+```rust
+impl hyper::service::Service<hyper::Request<hyper::body::Body>> for HyperHandler {
+    type Response = hyper::Response<hyper::body::Body>;
+    type Error = hyper::Error;
+    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+    fn call(&mut self, req: hyper::Request<hyper::body::Body>) -> Self::Future {
+        let response = self.handle(req.into());
+        let fut = async move {
+            let mut hyper_response = hyper::Response::<hyper::Body>::new(hyper::Body::empty());
+            response.await.write_back(&mut hyper_response).await;
+            Ok(hyper_response)
+        };
+        Box::pin(fut)
+    }
+}
+```
+
+---
+
+Handle `Request` and returns `Response`.
 
 This function is useful for testing application.
 
@@ -263,3 +290,32 @@ async fn main() {
 }
 ```
 `pub async fn handler(&self, request: impl Into<Request>) -> Response`
+
+__Using module__ :
+
+`futures_util` : using `futures_util::future`.
+
+impl `hyper::service::Service<&'t T>`
+
+```rust
+impl<'t, T> hyper::service::Service<&'t T> for Service
+where
+    T: Transport,
+{
+    type Response = HyperHandler;
+    type Error = IoError;
+    type Future = future::Ready<Result<Self::Response, Self::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        Ok(()).into()
+    }
+    fn call(&mut self, req: &'t T) -> Self::Future {
+        future::ok(self.hyper_handler(req.remote_addr()))
+    }
+}
+```
+
+
