@@ -1,18 +1,17 @@
 # Readme
 This project was crated just for my learning about how a web framework worked and  this was written in `rust`.
 
-- The learning project: https://github.com/salvo-rs/salvo
-
+- The learning the project from : https://github.com/salvo-rs/salvo
 - The learning project official documentation: https://salvo.rs/
 
 Logging my every stage reading the source code.
 
-- learning platforms: `windows-11`
+- learning platforms: `windows-11 22h1` 
 - learning salvo version: `0.37.1`  commit Id: `441b5dd` - 0.37.1 release version
 
 __Now is reading the salvo_core library__
 
-working-log are in the ./worklog/* 
+working-log are in the dir:  ./worklog/* 
 
 [Part01](./worklog/Part01.md) Prepare for `Request` , `Response`, `Depot`
 
@@ -26,6 +25,12 @@ working-log are in the ./worklog/*
 
 [Part06](./worklog/Part06.md) Build `Cather`, `Service`, `Transport`
 
-[Part08]() Build `Listener`
+[Part07](./worklog/Part07.md) Build `Listener`
 
-[Part07]() Build `Server`
+[Part08](./worklog/Part08.md) Build `Server`
+
+[Part09](./worklog/Part09.md) Other detail handle
+
+[Part10](./worklog/Part10.md) Test-mode Clients
+
+[Part11](./worklog/Part11.md) Complete mod test

@@ -17,6 +17,8 @@ pub mod routing;
 
 pub mod cfg;
 
+pub mod server;
+
 use crate::error::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
