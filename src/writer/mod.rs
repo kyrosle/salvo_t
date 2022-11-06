@@ -1,3 +1,7 @@
+mod json;
+mod redirect;
+mod text;
+
 use async_trait::async_trait;
 use hyper::{header::CONTENT_TYPE, http::HeaderValue};
 
@@ -54,6 +58,16 @@ impl Piece for &'static str {
     }
 }
 
+impl<'a> Piece for &'a String {
+    fn render(self, res: &mut Response) {
+        res.headers_mut().insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+        res.write_body(self.as_bytes().to_vec()).ok();
+    }
+}
+
 impl Piece for String {
     fn render(self, res: &mut Response) {
         res.headers_mut().insert(
@@ -66,6 +80,4 @@ impl Piece for String {
 
 // TODO: Writer and Piece Tests
 #[cfg(test)]
-mod tests {
-
-}
+mod tests {}

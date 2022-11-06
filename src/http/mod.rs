@@ -2,6 +2,7 @@ pub mod errors;
 pub mod form;
 pub mod request;
 pub mod response;
+pub mod range;
 
 pub use mime::{self, Mime};
 

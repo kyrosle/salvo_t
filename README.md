@@ -29,8 +29,11 @@ working-log are in the dir:  ./worklog/*
 
 [Part08](./worklog/Part08.md) Build `Server`
 
-[Part09](./worklog/Part09.md) Other detail handle
+[Part09](./worklog/Part09.md) Finish some details for http module and writer module
 
-[Part10](./worklog/Part10.md) Test-mode Clients
+[Part10](./worklog/Part10.md) Test-mode Clients - Request Builder
 
-[Part11](./worklog/Part11.md) Complete mod test
+[Part11](./worklog/Part11.md) Test-mode Clients - Clients and Response
+
+[Part11]() Complete mod test
+
