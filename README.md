@@ -35,7 +35,7 @@ working-log are in the dir:  ./worklog/*
 
 [Part11](./worklog/Part11.md) Test-mode Clients - Clients and Response
 
-[Part12](./worklog/Part12.md) `Handler` trait into macro
+[Part12](./worklog/Part12.md) `Handler` trait into `#[handler]` macro
 
 [Part13](./worklog/Part13.md) Complete mod test
 

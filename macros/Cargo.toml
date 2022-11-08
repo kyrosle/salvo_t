@@ -1,0 +1,14 @@
+[package]
+name = "salvo-macros"
+version = "0.37.1"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+quote = "1.0.21"
+syn = "1.0.103"
+proc-macro2 = "1.0.47"
+proc-macro-crate = "1.2.1"
+regex = "1.7.0"
