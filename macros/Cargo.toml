@@ -14,3 +14,4 @@ proc-macro-crate = "1.2.1"
 regex = "1.7.0"
 
 darling = "0.14.2"
+cruet = "0.13.1"

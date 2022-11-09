@@ -8,7 +8,7 @@ three proc-macro :
 * attribute `#[proc_macro_attribute]`
 
 Open the proc-macro attribute in the Cargo.toml 
-```
+```toml
 [lib]
 proc-macro = true
 ```

@@ -733,6 +733,7 @@ checksum = "4501abdff3ae82a1c1b477a17252eb69cee9e66eb915c1abaa4f44d873df9f09"
 name = "salvo-macros"
 version = "0.37.1"
 dependencies = [
+ "cruet",
  "darling",
  "proc-macro-crate",
  "proc-macro2",
