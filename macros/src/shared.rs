@@ -9,7 +9,7 @@ pub(crate) enum InputType<'a> {
     Depot(&'a PatType),
     Response(&'a PatType),
     FlowCtrl(&'a PatType),
-    UnKnown,
+    Unknown,
     Receiver(&'a Receiver),
     NoReference(&'a PatType),
     LazyExtract(&'a PatType),
@@ -48,10 +48,10 @@ pub(crate) fn parse_input_type(input: &FnArg) -> InputType {
                 } else if ident == "FlowCtrl" {
                     InputType::FlowCtrl(p)
                 } else {
-                    InputType::UnKnown
+                    InputType::Unknown
                 }
             } else {
-                InputType::UnKnown
+                InputType::Unknown
             }
         } else if let Type::Path(nty) = &*p.ty {
             let ident = &nty.path.segments.last().unwrap().ident;
@@ -66,11 +66,11 @@ pub(crate) fn parse_input_type(input: &FnArg) -> InputType {
     } else if let FnArg::Receiver(r) = input {
         InputType::Receiver(r)
     } else {
-        InputType::UnKnown
+        InputType::Unknown
     }
 }
 
-pub(crate) fn omit_type_path_lifetime(ty_path: &TypePath) -> TypePath {
+pub(crate) fn omit_type_path_lifetimes(ty_path: &TypePath) -> TypePath {
     let reg = Regex::new(r"'\w+").unwrap();
     let ty_path = ty_path.into_token_stream().to_string();
     let ty_path = reg.replace_all(&ty_path, "'_");

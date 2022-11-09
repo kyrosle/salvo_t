@@ -46,7 +46,7 @@ pub(crate) fn generate(internal: bool, input: Item) -> syn::Result<TokenStream> 
             let mut hmtd = None;
             for item in &item_impl.items {
                 if let ImplItem::Method(method) = item {
-                    if method.sig.ident == Ident::new("handler", Span::call_site()) {
+                    if method.sig.ident == Ident::new("handle", Span::call_site()) {
                         hmtd = Some(method);
                     }
                 }
@@ -65,7 +65,7 @@ pub(crate) fn generate(internal: bool, input: Item) -> syn::Result<TokenStream> 
             Ok(quote! {
                 #item_impl
                 #[#salvo::async_trait]
-                impl #impl_generics $salvo::Handler for #ty #ty_generics #where_clause {
+                impl #impl_generics #salvo::Handler for #ty #ty_generics #where_clause {
                     #hfn
                 }
             })
@@ -95,7 +95,7 @@ fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
             InputType::FlowCtrl(_pat) => {
                 call_args.push(Ident::new("ctrl", Span::call_site()));
             }
-            InputType::UnKnown => {
+            InputType::Unknown => {
                 return Err(syn::Error::new_spanned(
                     &sig.inputs,
                     "the inputs parameters must be Request, Depot, Response or FlowCtrl",
@@ -105,7 +105,7 @@ fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
                 if let (Pat::Ident(ident), Type::Path(ty)) = (&*pat.pat, &*pat.ty) {
                     call_args.push(ident.ident.clone());
                     let id = &pat.pat;
-                    let ty = omit_type_path_lifetime(ty);
+                    let ty = omit_type_path_lifetimes(ty);
 
                     extract_ts.push(quote!{
                         let #id: #ty = match req.extract().await {
@@ -128,7 +128,7 @@ fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
                     call_args.push(ident.ident.clone());
 
                     let id = &pat.pat;
-                    let ty = omit_type_path_lifetime(ty);
+                    let ty = omit_type_path_lifetimes(ty);
 
                     extract_ts.push(quote! {
                         let #id: #ty = #salvo::extract::LazyExtract::new();
@@ -166,14 +166,14 @@ fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
                 Ok(quote!{
                     async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
                         #(#extract_ts)*
-                        #salvo::Writer::write(Self::#name(#(#call_args),*), req, depot, res).await
+                        #salvo::Writer::write(Self::#name(#(#call_args),*), req, depot, res).await;
                     } 
                 })
             } else {
                 Ok(quote!{
                     async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
                         #(#extract_ts)*
-                        #salvo::Writer::write(Self::#name(#(#call_args),*).await, req, depot, res).await
+                        #salvo::Writer::write(Self::#name(#(#call_args),*).await, req, depot, res).await;
                     } 
                 })
             }

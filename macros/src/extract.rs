@@ -4,7 +4,7 @@ use proc_macro2::{Ident, Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::{Attribute, DeriveInput, Error, Generics, Lit, Meta, NestedMeta, Type};
 
-use crate::shared::{is_internal, omit_type_path_lifetime, salvo_crate};
+use crate::shared::{is_internal, omit_type_path_lifetimes, salvo_crate};
 struct Field {
     ident: Option<Ident>,
     ty: Type,
@@ -126,13 +126,13 @@ fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream {
     let format = if source.format.to_lowercase() == "multimap" {
         Ident::new("MultiMap", Span::call_site())
     } else {
-        Ident::new(&source.format, Span::call_site())
+        Ident::new(&source.format.to_pascal_case(), Span::call_site())
     };
     let from = quote! {
-        #salvo::extract::metadata::SourceFrom::#from
+        #salvo::extract::metadata::SourceFormat::#from
     };
     let format = quote! {
-        #salvo::extract::metadata::SourceFrom::#format
+        #salvo::extract::metadata::SourceFormat::#format
     };
     quote! {
         #salvo::extract::metadata::new(#from, #format)
@@ -167,7 +167,7 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
         let field_ident = field
             .ident
             .as_ref()
-            .ok_or_else(|| Error::new_spanned(&name, "All fields must be named"))?;
+            .ok_or_else(|| Error::new_spanned(&name, "All fields must be named"))?.to_string();
 
         let mut sources = Vec::with_capacity(field.sources.len());
         let mut nested_metadata = None;
@@ -175,13 +175,13 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
             let from = &source.from;
             if from == "request" {
                 if let Type::Path(ty) = &field.ty {
-                    let ty = omit_type_path_lifetime(ty);
+                    let ty = omit_type_path_lifetimes(ty);
                     nested_metadata = Some(quote! {
                         field = field.metadata(<#ty as #salvo::extract::Extractible>::metadata());
                     });
                 } else {
                     return Err(Error::new_spanned(
-                        &salvo,
+                        &name,
                         "Invalid type for request source.",
                     ));
                 }

@@ -635,3 +635,117 @@ return code = quote! {
 `fn parse_aliases(attrs: &[syn::Attribute]) -> darling::Result<Vec<String>>`
 
 `fn parse_sources(attrs: &[Attribute], key: &str) -> darling::Result<Vec<RawSource>>`
+
+---
+---
+
+# Test (marcos/src/lib.rs)
+
+## `test_handler_for_fn`
+left :
+```rust
+#[handler]
+async fn hello(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+    res.render_plan_text("Hello world");
+}
+```
+right :
+```rust
+#[allow(non_camel_case_types)]
+#[derive(Debug)]
+struct hello;
+impl hello {
+    #[handler]
+    async fn hello(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+        {
+            res.render_plan_text("Hello world");
+        }
+    }
+}
+#[salvo::async_trait]
+impl salvo::Handler for hello {
+    async fn handle(
+        &self,
+        req: &mut salvo::Request,
+        depot: &mut salvo::Depot,
+        res: &mut salvo::Response,
+        ctrl: &mut salvo::routing::FlowCtrl
+    ) {
+        Self::hello(req, depot, res, ctrl).await
+    }
+}
+```
+
+## `test_handler_for_fn_return_result`
+left:
+```rust
+#[handler]
+async fn hello(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) -> Result<(), Error> {
+    Ok(())
+}
+```
+right: 
+```rust
+#[allow(non_camel_case_types)]
+#[derive(Debug)]
+struct hello;
+impl hello {
+    #[handler]
+    async fn hello(
+        req: &mut Request,
+        depot: &mut Depot,
+        res: &mut Response,
+        ctrl: &mut FlowCtrl
+    ) -> Result<(), Error> {
+        {
+            Ok(())
+        }
+    }
+}
+#[salvo::async_trait]
+impl salvo::Handler for hello {
+    async fn handle(
+        &self,
+        req: &mut salvo::Request,
+        depot: &mut salvo::Depot,
+        res: &mut salvo::Response,
+        ctrl: &mut salvo::routing::FlowCtrl
+    ) {
+        salvo::Writer::write(Self::hello(req, depot, res, ctrl).await, req, depot, res).await;
+    }
+}
+```
+
+## `test_handler_for_impl`
+left:
+```rust
+#[handler]
+impl Hello {
+    fn handle(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+        res.render_plan_text("Hello World");
+    }
+}
+```
+right: 
+```rust
+#[handler]
+impl Hello {
+        fn handle(req: &mut Request, depot: &mut Depot, res: &mut Response, ctrl: &mut FlowCtrl) {
+            res.render_plan_text("Hello World");
+    }
+}
+#[salvo::async_trait]
+impl salvo::Handler for Hello {
+        async fn handle(
+            &self,
+        req: &mut salvo::Request,
+        depot: &mut salvo::Depot,
+        res: &mut salvo::Response,
+        ctrl: &mut salvo::routing::FlowCtrl
+    ) {
+            Self::handle(req, depot, res, ctrl)
+    }
+}
+```
+
+## `test_extract_simple`
