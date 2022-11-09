@@ -457,6 +457,16 @@ fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
 __add modules__ :
 * `darling` : Darling is a tool for declarative attribute parsing in proc macro implementations.
 
+
+```rust
+#[derive(FromMeta, Debug)]
+struct RawSource {
+    from: String,
+    #[darling(default)]
+    format: String,
+}
+```
+
 ```rust
 struct Field {
     ident: Option<Ident>,
@@ -467,16 +477,8 @@ struct Field {
 }
 ```
 
-impl `darling::FromField`
-
-```rust
-#[derive(FromMeta, Debug)]
-struct RawSource {
-    from: String,
-    #[darling(default)]
-    format: String,
-}
-```
+Impl `darling::FromField` :
+Create a instance by parsing an individual field and its attributes.
 
 ```rust
 struct ExtractibleArgs {
@@ -491,4 +493,25 @@ struct ExtractibleArgs {
 }
 ```
 
-impl `darling::FromDeriveInput` 
+Impl `darling::FromDeriveInput` :
+Create an instance by parsing the entire proc-macro `derive` input, including the, identity, generics, and visibility of the type.
+
+
+```rust
+static RENAME_RULES: &[(&str, &str)] = &[
+    ("lowercase", "LowerCase"),
+    ("UPPERCASE", "UpperCase"),
+    ("PascalCase", "PascalCase"),
+    ("camelCase", "CamelCase"),
+    ("snake_case", "SnakeCase"),
+    ("SCREAMING_SNAKE_CASE", "ScreamingSnakeCase"),
+    ("kebab-case", "KebabCase"),
+    ("SCREAMING-KEBAB-CASE", "ScreamingKebabCase"),
+];
+```
+
+`fn metadata_rename_rule(salvo: &Ident, input: &str) -> Result<TokenStream, Error>`
+
+`fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream`
+
+`fn generate(args: DeriveInput) -> Result<TokenStream, Error>`
