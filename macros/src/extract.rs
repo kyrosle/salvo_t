@@ -1,10 +1,10 @@
 use cruet::Inflector;
 use darling::{FromDeriveInput, FromField, FromMeta};
 use proc_macro2::{Ident, Span, TokenStream};
-use quote::quote;
-use syn::{Attribute, DeriveInput, Error, Generics, Meta, NestedMeta, Type};
+use quote::{format_ident, quote};
+use syn::{Attribute, DeriveInput, Error, Generics, Lit, Meta, NestedMeta, Type};
 
-use crate::shared::{is_internal, salvo_crate, omit_type_path_lifetime};
+use crate::shared::{is_internal, omit_type_path_lifetime, salvo_crate};
 struct Field {
     ident: Option<Ident>,
     ty: Type,
@@ -168,29 +168,34 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
             .ident
             .as_ref()
             .ok_or_else(|| Error::new_spanned(&name, "All fields must be named"))?;
-        
+
         let mut sources = Vec::with_capacity(field.sources.len());
         let mut nested_metadata = None;
         for source in &field.sources {
-            let from = &source.from {
-                if from =="request" {
-                    if let Type::Path(ty) = &field.ty {
-                        let ty = omit_type_path_lifetime(ty);
-                        nested_metadata = Some(quote!{
-                            field = field.metadata(<#ty as #salvo::extract::Extractible>::metadata());
-                        });
-                    } else {
-                        return Err(Error::new_spanned(&salvo, "Invalid type for request source."));
-                    }
+            let from = &source.from;
+            if from == "request" {
+                if let Type::Path(ty) = &field.ty {
+                    let ty = omit_type_path_lifetime(ty);
+                    nested_metadata = Some(quote! {
+                        field = field.metadata(<#ty as #salvo::extract::Extractible>::metadata());
+                    });
+                } else {
+                    return Err(Error::new_spanned(
+                        &salvo,
+                        "Invalid type for request source.",
+                    ));
                 }
-                let source = metadata_source(&salvo, source);
-                sources.push(quote!{
-                    field = field.add_source(#source);
-                });
             }
+            let source = metadata_source(&salvo, source);
+            sources.push(quote! {
+                field = field.add_source(#source);
+            });
         }
-        if nested_metadata.is_some() && field.sources.len() > 1{
-            return Err(Error::new_spanned(&name, "Only one source can be from request."));
+        if nested_metadata.is_some() && field.sources.len() > 1 {
+            return Err(Error::new_spanned(
+                &name,
+                "Only one source can be from request.",
+            ));
         }
 
         let aliases = field.aliases.iter().map(|alias| {
@@ -205,10 +210,122 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
             }
         });
         fields.push(quote! {
-            let mut 
+            let mut field = #salvo::extract::metadata::Field::new(#field_ident);
+            #nested_metadata
+            #(#sources)*
+            #(#aliases)*
+            #rename
+            metadata = metadata.add_field(field);
         });
     }
-    Ok(())
+    let sv = format_ident!("__salvo_extract_{}", name);
+    let mt = name.to_string();
+    let imp_code = if args.generics.lifetimes().next().is_none() {
+        let de_life_def = syn::parse_str("'de").unwrap();
+        let mut generics = args.generics.clone();
+        generics.params.insert(0, de_life_def);
+        let impl_generics_de = generics.split_for_impl().0;
+        quote! {
+            impl #impl_generics_de #salvo::extract::Extractible<'de> for #name #ty_generics #where_clause {
+                fn metadata() -> &'static #salvo::extract::Metadata {
+                    &*#sv
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics #salvo::extract::Extractible #impl_generics for #name #ty_generics #where_clause {
+                fn metadata() -> &'static #salvo::extract::Metadata {
+                    &*#sv
+                }
+            }
+        }
+    };
+    let code = quote! {
+        #[allow(non_upper_case_globals)]
+        static #sv: #salvo::__private::once_cell::sync::Lazy<#salvo::extract::Metadata> = #salvo::__private::once_cell::sync::Lazy::new(|| {
+            let mut metadata = #salvo::extract::Metadata::new(#mt);
+            #(
+                #default_sources
+            )*
+            #rename_all
+            #(
+                #fields
+            )*
+        });
+    };
+    Ok(code)
+}
+
+fn parse_rename(attrs: &[syn::Attribute]) -> darling::Result<Option<String>> {
+    for attr in attrs {
+        if let Meta::List(list) = attr.parse_meta()? {
+            for meta in list.nested.iter() {
+                if let NestedMeta::Meta(Meta::NameValue(item)) = meta {
+                    if item.path.is_ident("rename") {
+                        if let Lit::Str(lit) = &item.lit {
+                            return Ok(Some(lit.value()));
+                        } else {
+                            return Err(darling::Error::custom(format!(
+                                "invalid rename : {:?}",
+                                item
+                            )));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn parse_rename_rule(attrs: &[syn::Attribute]) -> darling::Result<Option<String>> {
+    for attr in attrs {
+        if attr.path.is_ident("extract") {
+            if let Meta::List(list) = attr.parse_meta()? {
+                for meta in list.nested.iter() {
+                    if let NestedMeta::Meta(Meta::NameValue(item)) = meta {
+                        if item.path.is_ident("rename_all") {
+                            if let Lit::Str(lit) = &item.lit {
+                                return Ok(Some(lit.value()));
+                            } else {
+                                return Err(darling::Error::custom(format!(
+                                    "invalid alias : {:?}",
+                                    item
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(None)
+}
+
+fn parse_aliases(attrs: &[syn::Attribute]) -> darling::Result<Vec<String>> {
+    let mut aliases = Vec::new();
+    for attr in attrs {
+        if attr.path.is_ident("extract") {
+            if let Meta::List(list) = attr.parse_meta()? {
+                for meta in list.nested.iter() {
+                    if let NestedMeta::Meta(Meta::NameValue(item)) = meta {
+                        if item.path.is_ident("alias") {
+                            if let Lit::Str(lit) = &item.lit {
+                                aliases.push(lit.value());
+                            } else {
+                                return Err(darling::Error::custom(format!(
+                                    "invalid alias : {:?}",
+                                    item
+                                )));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    Ok(aliases)
 }
 
 fn parse_sources(attrs: &[Attribute], key: &str) -> darling::Result<Vec<RawSource>> {

@@ -34,7 +34,7 @@ __Added module__ :
 
 ---
 
-## Mainly macro : `Handler` (macros/src/lib.rs)
+# Mainly macro : `Handler` (macros/src/lib.rs)
 
 `handler` is a pro macro to help create `Handler` from function or impl block easily.
 
@@ -477,7 +477,7 @@ struct Field {
 }
 ```
 
-Impl `darling::FromField` :
+`Field` impl `darling::FromField` :
 Create a instance by parsing an individual field and its attributes.
 
 ```rust
@@ -493,7 +493,7 @@ struct ExtractibleArgs {
 }
 ```
 
-Impl `darling::FromDeriveInput` :
+`ExtractibleArgs` impl `darling::FromDeriveInput` :
 Create an instance by parsing the entire proc-macro `derive` input, including the, identity, generics, and visibility of the type.
 
 
@@ -511,7 +511,127 @@ static RENAME_RULES: &[(&str, &str)] = &[
 ```
 
 `fn metadata_rename_rule(salvo: &Ident, input: &str) -> Result<TokenStream, Error>`
-
+```rust
+#salvo::extract::metadata::RenameRule::#rule
+```
+---
 `fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream`
 
+__pseudo-code__ :
+```rust
+let from = quote! {
+    #salvo::extract::metadata::SourceFrom::#from
+};
+let format = quote! {
+    #salvo::extract::metadata::SourceFrom::#format
+};
+quote! {
+    #salvo::extract::metadata::new(#from, #format)
+}
+```
+---
 `fn generate(args: DeriveInput) -> Result<TokenStream, Error>`
+
+__pseudo-code__ :
+```rust
+let mut default_sources = Vec::new();
+
+for source in &args.default_sources {
+    let source = metadata_source(&salvo, source);
+    default_sources.push(quote! {
+        metadata = metadata.add_default_source(#source);
+    });
+}
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+let rename_all = if let Some(rename_all) = &args.rename_all {
+    let rename = metadata_rename_rule(&salvo, rename_all)?;
+    Some(quote! {
+        metadata = metadata.rename_all(#rename);
+    })
+} else {
+    None
+};
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+field_ident = field.ident.as_ref().unwrap();
+
+let mut sources = Vec::with_capacity(field.sources.len());
+
+let ty = omit_type_path_lifetime(ty);
+nested_metadata = Some(quote! {
+    field = field.metadata(<#ty as #salvo::extract::Extractible>::metadata());
+});
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+let aliases = field.aliases.iter().map(|alias| {
+    quote! {
+        field = field.add_alias(#alias);
+    }
+});
+
+let rename = field.rename.as_ref().map(|rename| {
+    quote! {
+        field = field.rename(#rename);
+    }
+});
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+let mut fields = Vec::new();
+
+fields.push(quote! {
+    let mut field = #salvo::extract::metadata::Field::new(#field_ident);
+    #nested_metadata
+    #(#sources)*
+    #(#aliases)*
+    #rename
+    metadata = metadata.add_field(field);
+});
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+let sv = format_ident!("__salvo_extract_{}", name);
+let mt = name.to_string();
+
+imp_code: TokenStream judge lifetimes() having ? => quote! {
+    impl #impl_generics_de #salvo::extract::Extractible<'de> for #name #ty_generics #where_clause {
+        fn metadata() -> &'static #salvo::extract::Metadata {
+            &*#sv
+        }
+    }
+} else {
+    impl #impl_generics #salvo::extract::Extractible #impl_generics for #name #ty_generics #where_clause {
+        fn metadata() -> &'static #salvo::extract::Metadata {
+            &*#sv
+        }
+    }
+}
+
+-- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
+
+return code = quote! {
+    #[allow(non_upper_case_globals)]
+    static #sv: #salvo::__private::once_cell::sync::Lazy<#salvo::extract::Metadata> = #salvo::__private::once_cell::sync::Lazy::new(|| {
+            let mut metadata = #salvo::extract::Metadata::new(#mt);
+        #(
+                #default_sources
+        )*
+        #rename_all
+        #(
+                #fields
+        )*
+    });
+};
+```
+
+`fn parse_rename(attrs: &[syn::Attribute]) -> darling::Result<Option<String>>`
+
+`fn parse_rename_rule(attrs: &[syn::Attribute]) -> darling::Result<Option<String>>`
+
+`fn parse_aliases(attrs: &[syn::Attribute]) -> darling::Result<Vec<String>>`
+
+`fn parse_sources(attrs: &[Attribute], key: &str) -> darling::Result<Vec<RawSource>>`
