@@ -249,12 +249,14 @@ Equal condition :
 ---
 ---
 
-## handler (macros/src/handler.rs)
+# Handler (macros/src/handler.rs)
 
 ```rust
 pub(crate) fn generate(internal: bool, input: Item) -> syn::Result<TokenStream> {
     let salvo = salvo_crate(internal);
     match input {
+        // `Fn(ItemFn)` - `ItemFn` : 
+        // A free-standing function: `fn process(n: usize) -> Result<()> { ... }` .
         Item::Fn(mut item_fn) => {
             let attrs = &item_fn.attrs;
             let vis = &item_fn.vis;
@@ -290,6 +292,9 @@ pub(crate) fn generate(internal: bool, input: Item) -> syn::Result<TokenStream> 
                 }
             })
         }
+
+        // `Impl(ItemImpl)` - `ItemImpl` :  
+        // An impl block providing trait or associated items: `impl<A> Trait for Data<A> { ... }` .
         Item::Impl(item_impl) => {
             let mut hmtd = None;
             for item in &item_impl.items {
@@ -330,13 +335,160 @@ pub(crate) fn generate(internal: bool, input: Item) -> syn::Result<TokenStream> 
 
 * `Item` : Provided by `proc-macros2`, things that can appear directly inside of a module or scope.
 
-`Fn(ItemFn)` - `ItemFn` : A free-standing function: `fn process(n: usize) -> Result<()> { ... }` .
-
-`Impl(ItemImpl)` - `ItemImpl` :  An impl block providing trait or associated items: `impl<A> Trait for Data<A> { ... }` .
 
 ---
 
 `fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream>`
 
-* `Signature` : A function signature in a trait or implementation: `unsafe fn initialize(&self)` .
+```rust
+// `Signature` : A function signature in a trait or implementation: `unsafe fn initialize(&self)` .
+fn handle_fn(salvo: &Ident, sig: &Signature) -> syn::Result<TokenStream> {
+    let name = &sig.ident;
+    let mut extract_ts = Vec::with_capacity(sig.inputs.len());
+    let mut call_args: Vec<Ident> = Vec::with_capacity(sig.inputs.len());
+    // parse the input arguments
+    for input in &sig.inputs {
+        match parse_input_type(input) {
+            InputType::Request(_pat) => {
+                call_args.push(Ident::new("req", Span::call_site()));
+            }
+            InputType::Depot(_pat) => {
+                call_args.push(Ident::new("depot", Span::call_site()));
+            }
+            InputType::Response(_pat) => {
+                call_args.push(Ident::new("res", Span::call_site()));
+            }
+            InputType::FlowCtrl(_pat) => {
+                call_args.push(Ident::new("ctrl", Span::call_site()));
+            }
+            InputType::UnKnown => {
+                return Err(syn::Error::new_spanned(
+                    &sig.inputs,
+                    "the inputs parameters must be Request, Depot, Response or FlowCtrl",
+                ))
+            }
+            InputType::NoReference(pat) => {
+                if let (Pat::Ident(ident), Type::Path(ty)) = (&*pat.pat, &*pat.ty) {
+                    call_args.push(ident.ident.clone());
+                    let id = &pat.pat;
+                    let ty = omit_type_path_lifetime(ty);
 
+                    extract_ts.push(quote!{
+                        let #id: #ty = match req.extract().await {
+                            Ok(data) => data,
+                            Err(e) => {
+                                #salvo::__private::tracing::error!(error = ?e, "failed to extract data");
+                                res.set_status_error(#salvo::http::errors::StatusError::bad_request().with_detail(
+                                    "Extract data failed"
+                                ));
+                                return;
+                            }
+                        };
+                    });
+                } else {
+                    return Err(syn::Error::new_spanned(pat, "Invalid param definition"));
+                }
+            }
+            InputType::LazyExtract(pat) => {
+                if let (Pat::Ident(ident), Type::Path(ty)) = (&*pat.pat, &*pat.ty) {
+                    call_args.push(ident.ident.clone());
+
+                    let id = &pat.pat;
+                    let ty = omit_type_path_lifetime(ty);
+
+                    extract_ts.push(quote! {
+                        let #id: #ty = #salvo::extract::LazyExtract::new();
+                    });
+                } else {
+                    return Err(syn::Error::new_spanned(pat, "Invalid param definition"));
+                }
+            }
+            InputType::Receiver(_) => {
+                call_args.push(Ident::new("self", Span::call_site()));
+            }
+        }
+    }
+
+    // check signature return type
+    match sig.output {
+        ReturnType::Default => {
+            if sig.asyncness.is_none() {
+                Ok(quote!{
+                    async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
+                        #(#extract_ts)*
+                        Self::#name(#(#call_args),*)
+                    } 
+                })
+            } else {
+                Ok(quote!{
+                    async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
+                        #(#extract_ts)*
+                        Self::#name(#(#call_args),*).await
+                    } 
+                })
+            }
+        }
+        ReturnType::Type(_,_ ) => {
+            if sig.asyncness.is_none() {
+                Ok(quote!{
+                    async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
+                        #(#extract_ts)*
+                        #salvo::Writer::write(Self::#name(#(#call_args),*), req, depot, res).await
+                    } 
+                })
+            } else {
+                Ok(quote!{
+                    async fn handle(&self, req: &mut #salvo::Request, depot: &mut #salvo::Depot, res: &mut #salvo::Response, ctrl: &mut #salvo::routing::FlowCtrl) {
+                        #(#extract_ts)*
+                        #salvo::Writer::write(Self::#name(#(#call_args),*).await, req, depot, res).await
+                    } 
+                })
+            }
+        }
+    }
+}
+```
+
+---
+---
+
+# Extract (macros/src/extract.rs)
+
+__add modules__ :
+* `darling` : Darling is a tool for declarative attribute parsing in proc macro implementations.
+
+```rust
+struct Field {
+    ident: Option<Ident>,
+    ty: Type,
+    sources: Vec<RawSource>,
+    aliases: Vec<String>,
+    rename: Option<String>,
+}
+```
+
+impl `darling::FromField`
+
+```rust
+#[derive(FromMeta, Debug)]
+struct RawSource {
+    from: String,
+    #[darling(default)]
+    format: String,
+}
+```
+
+```rust
+struct ExtractibleArgs {
+    ident: Ident,
+    generics: Generics,
+    fields: Vec<Field>,
+
+    internal: bool,
+
+    default_sources: Vec<RawSource>,
+    rename_all: Option<String>
+}
+```
+
+impl `darling::FromDeriveInput` 

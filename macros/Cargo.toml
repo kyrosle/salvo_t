@@ -12,3 +12,5 @@ syn = "1.0.103"
 proc-macro2 = "1.0.47"
 proc-macro-crate = "1.2.1"
 regex = "1.7.0"
+
+darling = "0.14.2"
