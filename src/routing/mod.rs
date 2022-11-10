@@ -1,7 +1,9 @@
 use std::{borrow::Cow, collections::HashMap, fmt::format, sync::Arc};
 
 pub mod filter;
-pub mod router;
+mod router;
+pub use filter::*;
+pub use router::{DetectMatched, Router};
 
 use crate::{
     depot::Depot,
@@ -150,5 +152,40 @@ impl FlowCtrl {
     pub fn cease(&mut self) {
         self.skip_rest();
         self.is_ceased = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use crate::test::{ResponseExt, TestClient};
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_custom_filter() {
+        #[handler(internal)]
+        async fn hello_world() -> &'static str {
+            "Hello World"
+        }
+
+        let router = Router::new()
+            .filter_fn(|req, _| {
+                let host = req.uri().host().unwrap_or_default();
+                host == "localhost"
+            })
+            .get(hello_world);
+        let service = Service::new(router);
+
+        async fn access(service: &Service, host: &str) -> String {
+            TestClient::get(format!("http://{}/", host))
+                .send(service)
+                .await
+                .take_string()
+                .await
+                .unwrap()
+        }
+
+        assert!(access(&service, "127.0.0.1").await.contains("404: Not Found"));
+        assert_eq!(access(&service, "localhost").await, "Hello World");
     }
 }

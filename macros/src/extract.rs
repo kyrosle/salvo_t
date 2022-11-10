@@ -99,7 +99,7 @@ static RENAME_RULES: &[(&str, &str)] = &[
     ("SCREAMING-KEBAB-CASE", "ScreamingKebabCase"),
 ];
 
-fn metadata_rename_rule(salvo: &Ident, input: &str) -> Result<TokenStream, Error> {
+fn metadata_rename_rule(salvo_t: &Ident, input: &str) -> Result<TokenStream, Error> {
     let mut rule = None;
     for (name, value) in RENAME_RULES {
         if input == *name {
@@ -110,7 +110,7 @@ fn metadata_rename_rule(salvo: &Ident, input: &str) -> Result<TokenStream, Error
         Some(rule) => {
             let rule = Ident::new(rule, Span::call_site());
             Ok(quote! {
-                #salvo::extract::metadata::RenameRule::#rule
+                #salvo_t::extract::metadata::RenameRule::#rule
             })
         }
         None => {
@@ -121,7 +121,7 @@ fn metadata_rename_rule(salvo: &Ident, input: &str) -> Result<TokenStream, Error
     }
 }
 
-fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream {
+fn metadata_source(salvo_t: &Ident, source: &RawSource) -> TokenStream {
     let from = Ident::new(&source.from.to_pascal_case(), Span::call_site());
     let format = if source.format.to_lowercase() == "multimap" {
         Ident::new("MultiMap", Span::call_site())
@@ -129,33 +129,33 @@ fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream {
         Ident::new(&source.format.to_pascal_case(), Span::call_site())
     };
     let from = quote! {
-        #salvo::extract::metadata::SourceFrom::#from
+        #salvo_t::extract::metadata::SourceFrom::#from
     };
     let format = quote! {
-        #salvo::extract::metadata::SourceFormat::#format
+        #salvo_t::extract::metadata::SourceFormat::#format
     };
     quote! {
-        #salvo::extract::metadata::Source::new(#from, #format)
+        #salvo_t::extract::metadata::Source::new(#from, #format)
     }
 }
 
 pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
     let mut args: ExtractibleArgs = ExtractibleArgs::from_derive_input(&args)?;
-    let salvo = salvo_crate(args.internal);
+    let salvo_t = salvo_crate(args.internal);
     let (impl_generics, ty_generics, where_clause) = args.generics.split_for_impl();
     let name = &args.ident;
     let mut default_sources = Vec::new();
     let mut fields = Vec::new();
 
     for source in &args.default_sources {
-        let source = metadata_source(&salvo, source);
+        let source = metadata_source(&salvo_t, source);
         default_sources.push(quote! {
             metadata = metadata.add_default_source(#source);
         });
     }
 
     let rename_all = if let Some(rename_all) = &args.rename_all {
-        let rename = metadata_rename_rule(&salvo, rename_all)?;
+        let rename = metadata_rename_rule(&salvo_t, rename_all)?;
         Some(quote! {
             metadata = metadata.rename_all(#rename);
         })
@@ -167,7 +167,8 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
         let field_ident = field
             .ident
             .as_ref()
-            .ok_or_else(|| Error::new_spanned(&name, "All fields must be named"))?.to_string();
+            .ok_or_else(|| Error::new_spanned(&name, "All fields must be named"))?
+            .to_string();
 
         let mut sources = Vec::with_capacity(field.sources.len());
         let mut nested_metadata = None;
@@ -177,7 +178,7 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
                 if let Type::Path(ty) = &field.ty {
                     let ty = omit_type_path_lifetimes(ty);
                     nested_metadata = Some(quote! {
-                        field = field.metadata(<#ty as #salvo::extract::Extractible>::metadata());
+                        field = field.metadata(<#ty as #salvo_t::extract::Extractible>::metadata());
                     });
                 } else {
                     return Err(Error::new_spanned(
@@ -186,7 +187,7 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
                     ));
                 }
             }
-            let source = metadata_source(&salvo, source);
+            let source = metadata_source(&salvo_t, source);
             sources.push(quote! {
                 field = field.add_source(#source);
             });
@@ -210,7 +211,7 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
             }
         });
         fields.push(quote! {
-            let mut field = #salvo::extract::metadata::Field::new(#field_ident);
+            let mut field = #salvo_t::extract::metadata::Field::new(#field_ident);
             #nested_metadata
             #(#sources)*
             #(#aliases)*
@@ -226,16 +227,16 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
         generics.params.insert(0, de_life_def);
         let impl_generics_de = generics.split_for_impl().0;
         quote! {
-            impl #impl_generics_de #salvo::extract::Extractible<'de> for #name #ty_generics #where_clause {
-                fn metadata() -> &'static #salvo::extract::Metadata {
+            impl #impl_generics_de #salvo_t::extract::Extractible<'de> for #name #ty_generics #where_clause {
+                fn metadata() -> &'static #salvo_t::extract::Metadata {
                     &*#sv
                 }
             }
         }
     } else {
         quote! {
-            impl #impl_generics #salvo::extract::Extractible #impl_generics for #name #ty_generics #where_clause {
-                fn metadata() -> &'static #salvo::extract::Metadata {
+            impl #impl_generics #salvo_t::extract::Extractible #impl_generics for #name #ty_generics #where_clause {
+                fn metadata() -> &'static #salvo_t::extract::Metadata {
                     &*#sv
                 }
             }
@@ -243,8 +244,8 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
     };
     let code = quote! {
         #[allow(non_upper_case_globals)]
-        static #sv: #salvo::__private::once_cell::sync::Lazy<#salvo::extract::Metadata> = #salvo::__private::once_cell::sync::Lazy::new(|| {
-            let mut metadata = #salvo::extract::Metadata::new(#mt);
+        static #sv: #salvo_t::__private::once_cell::sync::Lazy<#salvo_t::extract::Metadata> = #salvo_t::__private::once_cell::sync::Lazy::new(|| {
+            let mut metadata = #salvo_t::extract::Metadata::new(#mt);
             #(
                 #default_sources
             )*
@@ -261,17 +262,19 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
 
 fn parse_rename(attrs: &[syn::Attribute]) -> darling::Result<Option<String>> {
     for attr in attrs {
-        if let Meta::List(list) = attr.parse_meta()? {
-            for meta in list.nested.iter() {
-                if let NestedMeta::Meta(Meta::NameValue(item)) = meta {
-                    if item.path.is_ident("rename") {
-                        if let Lit::Str(lit) = &item.lit {
-                            return Ok(Some(lit.value()));
-                        } else {
-                            return Err(darling::Error::custom(format!(
-                                "invalid rename : {:?}",
-                                item
-                            )));
+        if attr.path.is_ident("extract") {
+            if let Meta::List(list) = attr.parse_meta()? {
+                for meta in list.nested.iter() {
+                    if let NestedMeta::Meta(Meta::NameValue(item)) = meta {
+                        if item.path.is_ident("rename") {
+                            if let Lit::Str(lit) = &item.lit {
+                                return Ok(Some(lit.value()));
+                            } else {
+                                return Err(darling::Error::custom(format!(
+                                    "invalid rename : {:?}",
+                                    item
+                                )));
+                            }
                         }
                     }
                 }

@@ -3,8 +3,8 @@ use core::hash::Hash;
 pub(crate) use serde::de::value::Error as ValError;
 use serde::{
     de::{
-        value::{SeqDeserializer, MapDeserializer}, EnumAccess, Error as DeError, IntoDeserializer, VariantAccess,
-        Visitor,
+        value::{MapDeserializer, SeqDeserializer},
+        EnumAccess, Error as DeError, IntoDeserializer, VariantAccess, Visitor,
     },
     forward_to_deserialize_any, Deserialize, Deserializer,
 };
@@ -301,8 +301,10 @@ where
     K: Into<Cow<'de, str>>,
     V: Into<Cow<'de, str>>,
 {
-    let iter = input.into_iter().map(|(k, v)| CowValue(v.into()));
-    T::deserialize(VecValue(iter))
+    let iter = input
+        .into_iter()
+        .map(|(k, v)| (CowValue(k.into()), CowValue(v.into())));
+    T::deserialize(MapDeserializer::new(iter))
 }
 
 pub(crate) fn from_str_multi_map<'de, I, T, K, C, V>(input: I) -> Result<T, ValError>
@@ -320,4 +322,67 @@ where
         )
     });
     T::deserialize(MapDeserializer::new(iter))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use multimap::MultiMap;
+    use serde::Deserialize;
+
+    #[tokio::test]
+    async fn test_de_str_map() {
+        #[derive(Deserialize, Eq, PartialEq, Debug)]
+        struct User {
+            name: String,
+            age: u8,
+        }
+        let mut data: HashMap<String, String> = HashMap::new();
+        data.insert("age".into(), "10".into());
+        data.insert("name".into(), "hello".into());
+        let user: User = super::from_str_map(&data).unwrap();
+        assert_eq!(user.age, 10);
+    }
+
+    #[tokio::test]
+    async fn test_de_str_multi_map() {
+        #[derive(Deserialize, Eq, PartialEq, Debug)]
+        struct User<'a> {
+            id: i64,
+            name: &'a str,
+            age: u8,
+            friends: (String, String, i64),
+            kids: Vec<String>,
+            lala: Vec<i64>,
+        }
+
+        let mut map = MultiMap::new();
+
+        map.insert("id", "42");
+        map.insert("name", "Jobs");
+        map.insert("age", "100");
+        map.insert("friends", "100");
+        map.insert("friends", "200");
+        map.insert("friends", "300");
+        map.insert("kids", "aaa");
+        map.insert("kids", "bbb");
+        map.insert("kids", "ccc");
+        map.insert("lala", "600");
+        map.insert("lala", "700");
+
+        let user: User = super::from_str_multi_map(map).unwrap();
+        assert_eq!(user.id, 42);
+        assert_eq!(user.name, "Jobs");
+        assert_eq!(user.age, 100);
+        assert_eq!(user.friends, ("100".to_owned(), "200".to_owned(), 300));
+        assert_eq!(
+            user.kids,
+            vec!["aaa", "bbb", "ccc"]
+                .into_iter()
+                .map(|s| s.to_owned())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(user.lala, vec![600, 700]);
+    }
 }

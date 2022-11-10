@@ -410,6 +410,45 @@ impl std::fmt::Display for Response {
     }
 }
 
-// TODO: Response Tests
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use bytes::BytesMut;
+    use futures_util::stream::{iter, StreamExt};
+    use std::error::Error;
+
+    use super::*;
+
+    #[test]
+    fn test_body_empty() {
+        let body = ResBody::Once(Bytes::from("hello"));
+        assert!(!body.is_none());
+        let body = ResBody::None;
+        assert!(body.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_body_stream1() {
+        let mut body = ResBody::Once(Bytes::from("hello"));
+
+        let mut result = BytesMut::new();
+        while let Some(Ok(data)) = body.next().await {
+            result.extend_from_slice(&data);
+        }
+
+        assert_eq!("hello", result);
+    }
+
+    #[tokio::test]
+    async fn test_body_stream2() {
+        let mut body = ResBody::Stream(Box::pin(iter(vec![
+            Result::<_, Box<dyn Error + Send + Sync>>::Ok(BytesMut::from("Hello").freeze()),
+            Result::<_, Box<dyn Error + Send + Sync>>::Ok(BytesMut::from(" World").freeze()),
+        ])));
+
+        let mut result = BytesMut::new();
+        while let Some(Ok(data)) = body.next().await {
+            result.extend_from_slice(&data);
+        }
+        assert_eq!("Hello World", &result);
+    }
+}

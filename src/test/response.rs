@@ -39,7 +39,7 @@ impl ResponseExt for Response {
         let charset = content_type
             .as_ref()
             .and_then(|mime| mime.get_param("charset").map(|charset| charset.as_str()))
-            .unwrap_or("UTF-8");
+            .unwrap_or("utf-8");
 
         let encoding = self
             .headers()
@@ -69,7 +69,7 @@ impl ResponseExt for Response {
                     reader.read_to_end(&mut buf).await?;
                     full = Bytes::from(buf);
                 }
-                "Deflate" => {
+                "deflate" => {
                     let mut reader = DeflateDecoder::new(BufReader::new(full.as_ref()));
                     let mut buf = vec![];
                     reader.read_to_end(&mut buf).await?;

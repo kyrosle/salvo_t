@@ -7,20 +7,19 @@ struct Message {
     r_pos_diff: String,
 }
 
-fn diff(left: &str, right: &str) -> Message {
-    let left = left.to_string();
-    let right = right.to_string();
+fn diff(left: &mut String, right: &mut String) -> Message {
     let mut iter = left.chars().zip(right.chars()).enumerate();
     for (pos, (l, r)) in iter {
         if l == r {
             continue;
         } else {
+            left. = '!';
             return Message {
                 diff_pos: pos,
                 status: false,
-                l_pos_diff: left[max(0, pos - 10)..min(pos+10, left.len())].to_string(),
-                r_pos_diff: right[max(0, pos - 10)..min(pos+10, right.len())].to_string(),
-            }
+                l_pos_diff: left[max(0, pos - 20)..min(pos + 20, left.len())].to_string(),
+                r_pos_diff: right[max(0, pos - 20)..min(pos + 20, right.len())].to_string(),
+            };
         }
     }
     Message {
@@ -35,7 +34,7 @@ fn main() {
     let file = include_str!("../file.txt").to_string();
     let matches = file.split('\n').collect::<Vec<_>>();
     let (left, right) = (matches[0].to_owned(), matches[1].to_owned());
-    let left = left.trim().strip_prefix("left: ").unwrap();
-    let right = right.trim().strip_prefix("right: ").unwrap();
-    println!("{:#?}", diff(left, right));
+    let mut left = left.trim().strip_prefix("left: ").unwrap().to_string();
+    let mut right = right.trim().strip_prefix("right: ").unwrap().to_string();
+    println!("{:#?}", diff(&mut left, &mut right));
 }

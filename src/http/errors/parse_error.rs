@@ -83,7 +83,16 @@ impl Writer for ParseError {
     }
 }
 
-// TODO: error - parse error test
 #[cfg(test)]
 mod test {
+    use super::*;
+    use crate::prelude::*;
+    #[tokio::test]
+    async fn test_writer_error() {
+        let mut res = Response::default();
+        let mut req = Request::default();
+        let mut depot = Depot::new();
+        let err = ParseError::EmptyBody;
+        err.write(&mut req, &mut depot, &mut res).await;
+    }
 }

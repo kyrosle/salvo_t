@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 
 use crate::{
     depot::Depot,
-    http::{errors::StatusError, guess_accept_mine, request::Request, response::Response},
+    http::{errors::StatusError, guess_accept_mime, request::Request, response::Response},
 };
 
 static SUPPORTED_FORMATS: Lazy<Vec<mime::Name>> =
@@ -151,7 +151,7 @@ impl Catcher for CatcherImpl {
         if !status.is_server_error() && !status.is_client_error() {
             return false;
         }
-        let format = guess_accept_mine(req, None);
+        let format = guess_accept_mime(req, None);
         let (format, data) = if res.status_error.is_some() {
             status_error_bytes(res.status_error.as_ref().unwrap(), &format)
         } else {
@@ -167,12 +167,10 @@ impl Catcher for CatcherImpl {
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
+    use salvo_macros::handler;
+    use crate::prelude::*;
 
     use super::*;
-    use crate::{
-        test::{RequestBuilder, TestClient},
-        writer::Writer,
-    };
 
     struct CustomError;
     #[async_trait]
@@ -195,7 +193,24 @@ mod tests {
         }
     }
 
-    // TODO: need handle marcos
-    #[tokio::test]
-    async fn test_handle_error() {}
+    // #[tokio::test]
+    // async fn test_handle_error() {
+    //     #[handler(internal)]
+    //     async fn handler_custom() -> Result<(), CustomError> {
+    //         Err(CustomError)
+    //     }
+    //     let router = Router::new().push(Router::with_path("custom").get(handler_custom));
+    //     let service = Service::new(router);
+
+    //     async fn access(service: &Service, name: &str) -> String {
+    //         TestClient::get(format!("http://127.0.0.1:7878/{}", name))
+    //             .send(service)
+    //             .await
+    //             .take_string()
+    //             .await
+    //             .unwrap()
+    //     }
+
+    //     assert_eq!(access(&service, "custom").await, "custom error");
+    // }
 }

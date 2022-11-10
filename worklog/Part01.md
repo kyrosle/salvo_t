@@ -863,6 +863,7 @@ pub struct Metadata {
     pub rename_all: Option<RenameRule>,
 }
 ```
+impl `FromStr` trait for `(&str).parse::<T>() -> T`
 ---
 #### Source
 Request source for extract data.

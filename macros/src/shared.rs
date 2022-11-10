@@ -19,17 +19,17 @@ pub(crate) fn salvo_crate(internal: bool) -> syn::Ident {
     if internal {
         return Ident::new("crate", Span::call_site());
     }
-    match crate_name("salvo") {
-        Ok(salvo) => match salvo {
-            FoundCrate::Itself => Ident::new("salvo", Span::call_site()),
+    match crate_name("salvo_t") {
+        Ok(salvo_t) => match salvo_t {
+            FoundCrate::Itself => Ident::new("salvo_t", Span::call_site()),
             FoundCrate::Name(name) => Ident::new(&name, Span::call_site()),
         },
         Err(_) => match crate_name("salvo_core") {
-            Ok(salvo) => match salvo {
+            Ok(salvo_t) => match salvo_t {
                 FoundCrate::Itself => Ident::new("salvo_core", Span::call_site()),
                 FoundCrate::Name(name) => Ident::new(&name, Span::call_site()),
             },
-            Err(_) => Ident::new("salvo", Span::call_site()),
+            Err(_) => Ident::new("salvo_t", Span::call_site()),
         },
     }
 }

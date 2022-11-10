@@ -783,3 +783,58 @@ impl<'a> salvo::extract::Extractible<'a> for BadMan<'a> {
     }
 }
 ```
+
+## `fn test_extract_lifetime()`
+left: 
+```rust
+#[extract(
+    default_source(from = "query"),
+    default_source(from = "param"),
+    default_source(from = "body"),
+)]
+struct BadMan<'a> {
+    id: i64,
+    username: String,
+    first_name: &'a str,
+    last_name: String,
+    lovers: Vec<String>
+}
+```
+right:
+```rust
+#[allow(non_upper_case_globals)]
+static __salvo_extract_BadMan:
+salvo::__private::once_cell::sync::Lazy<salvo::extract::Metadata> =
+salvo::__private::once_cell::sync::Lazy::new(|| {
+    let mut metadata = salvo::extract::Metadata::new("BadMan");
+    metadata = metadata.add_default_source(salvo::extract::metadata::Source::new(
+        salvo::extract::metadata::SourceFrom::Query,
+        salvo::extract::metadata::SourceFormat::MultiMap
+    ));
+    metadata = metadata.add_default_source(salvo::extract::metadata::Source::new(
+        salvo::extract::metadata::SourceFrom::Param,
+        salvo::extract::metadata::SourceFormat::MultiMap
+    ));
+    metadata = metadata.add_default_source(salvo::extract::metadata::Source::new(
+        salvo::extract::metadata::SourceFrom::Body,
+        salvo::extract::metadata::SourceFormat::MultiMap
+    ));
+
+    let mut field = salvo::extract::metadata::Field::new("id");
+    metadata = metadata.add_field(field);
+    let mut field = salvo::extract::metadata::Field::new("username");
+    metadata = metadata.add_field(field);
+    let mut field = salvo::extract::metadata::Field::new("first_name");
+    metadata = metadata.add_field(field);
+    let mut field = salvo::extract::metadata::Field::new("last_name");
+    metadata = metadata.add_field(field);
+    let mut field = salvo::extract::metadata::Field::new("lovers");
+    metadata = metadata.add_field(field);
+    metadata
+});
+impl<'a> salvo::extract::Extractible<'a> for BadMan<'a> {
+    fn metadata() -> &'static salvo::extract::Metadata {
+        &*__salvo_extract_BadMan
+    }
+}
+```

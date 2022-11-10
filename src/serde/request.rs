@@ -1,19 +1,19 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::iter::Iterator;
 
-use hyper::HeaderMap;
 use multimap::MultiMap;
-use serde_json::value::RawValue;
-
 use serde::de::value::Error as ValError;
 use serde::de::{self, Deserialize, Error as DeError, IntoDeserializer};
 use serde::forward_to_deserialize_any;
+use serde_json::value::RawValue;
 
-use crate::extract::{SourceFormat, SourceFrom};
-use crate::{
-    extract::{Metadata, Source},
-    http::{errors::ParseError, form::FormData, request::Request},
-};
+use crate::extract::metadata::{Source, SourceFormat, SourceFrom};
+use crate::extract::Metadata;
+use crate::http::form::FormData;
+use crate::http::header::HeaderMap;
+use crate::http::ParseError;
+use crate::Request;
 
 use super::{CowValue, VecValue};
 
@@ -365,4 +365,33 @@ where
     req.form_data().await.ok();
     req.payload().await.ok();
     Ok(T::deserialize(RequestDeserializer::new(req, metadata)?)?)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::macros::Extractible;
+    use serde::Deserialize;
+    use crate::test::TestClient;
+
+    // #[tokio::test]
+    // async fn test_de_request_from_query() {
+    //     #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+    //     #[extract(internal, default_source(from = "query"))]
+    //     struct RequestData {
+    //         q1: String,
+    //         q2: i64,
+    //     }
+    //     let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+    //         .query("q1", "q1v")
+    //         .query("q2", "23")
+    //         .build();
+    //     let data: RequestData = req.extract().await.unwrap();
+    //     assert_eq!(
+    //         data,
+    //         RequestData {
+    //             q1: "q1v".to_string(),
+    //             q2: 23
+    //         }
+    //     );
+    // }
 }

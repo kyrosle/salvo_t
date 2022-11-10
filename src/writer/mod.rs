@@ -2,13 +2,12 @@ mod json;
 mod redirect;
 mod text;
 
-use async_trait::async_trait;
-use hyper::{header::CONTENT_TYPE, http::HeaderValue};
+pub use json::Json;
+pub use redirect::Redirect;
+pub use text::Text;
 
-use crate::{
-    depot::Depot,
-    http::{request::Request, response::Response},
-};
+use crate::http::header::{HeaderValue, CONTENT_TYPE};
+use crate::{async_trait, Depot, Request, Response};
 
 #[async_trait]
 pub trait Writer {

@@ -1,22 +1,13 @@
-use std::{borrow::Borrow, sync::Arc};
+use std::borrow::Borrow;
+use std::convert::{From, TryInto};
+use std::str;
+use std::sync::Arc;
 
-use async_trait::async_trait;
-use hyper::{
-    header::{self, IntoHeaderName},
-    http::HeaderValue,
-    Body, HeaderMap, Method,
-};
-
+use hyper::http::header::{self, HeaderMap, HeaderValue, IntoHeaderName};
+use hyper::{Body, Method};
 use url::Url;
 
-use crate::{
-    depot::Depot,
-    error::Error,
-    handler::Handler,
-    http::{request::Request, response::Response},
-    routing::{router::Router, FlowCtrl},
-    service::Service,
-};
+use crate::{async_trait, Depot, Error, FlowCtrl, Handler, Request, Response, Router, Service};
 
 pub struct RequestBuilder {
     url: Url,

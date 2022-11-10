@@ -1,20 +1,17 @@
-use std::{pin::Pin, sync::Arc};
-
-use futures::Future;
-use futures_util::future;
-use hyper::{header::CONTENT_TYPE, StatusCode};
-use mime::Mime;
-
+use std::future::Future;
 use std::io::Error as IoError;
+use std::pin::Pin;
+use std::sync::Arc;
 
-use crate::{
-    addr::SocketAddr,
-    catcher::{Catcher, CatcherImpl},
-    depot::Depot,
-    http::{request::Request, response::Response},
-    routing::{router::Router, FlowCtrl, PathState},
-    transport::Transport,
-};
+use futures_util::future;
+
+use crate::addr::SocketAddr;
+use crate::catcher::CatcherImpl;
+use crate::http::header::CONTENT_TYPE;
+use crate::http::{Mime, Request, Response, StatusCode};
+use crate::routing::{FlowCtrl, PathState, Router};
+use crate::transport::Transport;
+use crate::{Catcher, Depot};
 
 pub struct Service {
     pub(crate) router: Arc<Router>,
@@ -130,7 +127,7 @@ impl HyperHandler {
                 }
             } else if res.body.is_none() && !has_error {
                 tracing::warn!(
-                    url =?req.uri(),
+                    uri =?req.uri(),
                     method = req.method().as_str(),
                     "Http response content type header not set"
                 );
@@ -152,6 +149,8 @@ impl HyperHandler {
                     tracing::warn!("request with head method should not have body: https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/HEAD");
                 }
             }
+
+            println!("--- Request ---\n{:?}\n--- --- --- ---", req);
             res
         }
     }
@@ -194,5 +193,91 @@ where
     }
     fn call(&mut self, req: &'t T) -> Self::Future {
         future::ok(self.hyper_handler(req.remote_addr()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::*;
+    use crate::test::{ResponseExt, TestClient};
+
+    #[tokio::test]
+    #[ignore]
+    async fn test_service() {
+        #[handler(internal)]
+        async fn before1(
+            req: &mut Request,
+            depot: &mut Depot,
+            res: &mut Response,
+            ctrl: &mut FlowCtrl,
+        ) {
+            res.render(Text::Plain("before1"));
+            if req.query::<String>("b").unwrap_or_default() == "1" {
+                ctrl.skip_rest();
+            } else {
+                ctrl.call_next(req, depot, res).await;
+            }
+        }
+
+        #[handler(internal)]
+        async fn before2(
+            req: &mut Request,
+            depot: &mut Depot,
+            res: &mut Response,
+            ctrl: &mut FlowCtrl,
+        ) {
+            res.render(Text::Plain("before2"));
+            if req.query::<String>("b").unwrap_or_default() == "2" {
+                ctrl.skip_rest();
+            } else {
+                ctrl.call_next(req, depot, res).await;
+            }
+        }
+
+        #[handler(internal)]
+        async fn before3(
+            req: &mut Request,
+            depot: &mut Depot,
+            res: &mut Response,
+            ctrl: &mut FlowCtrl,
+        ) {
+            res.render(Text::Plain("before3"));
+            if req.query::<String>("b").unwrap_or_default() == "3" {
+                ctrl.skip_rest();
+            } else {
+                ctrl.call_next(req, depot, res).await;
+            }
+        }
+
+        #[handler(internal)]
+        async fn hello() -> Result<&'static str, ()> {
+            Ok("hello")
+        }
+
+        let router = Router::with_path("level1").hoop(before1).push(
+            Router::with_hoop(before2)
+                .path("level2")
+                .push(Router::with_hoop(before3).path("level3")),
+        );
+
+        let service = Service::new(router);
+
+        async fn access(service: &Service, b: &str) -> String {
+            TestClient::get(format!("http://127.0.0.1:7979/level1/level2/hello?=b{}", b))
+                .send(service)
+                .await
+                .take_string()
+                .await
+                .unwrap()
+        }
+
+        let content = access(&service, "").await;
+        assert_eq!(content, "before1before2before3hello");
+        let content = access(&service, "1").await;
+        assert_eq!(content, "before1");
+        let content = access(&service, "2").await;
+        assert_eq!(content, "before1before2");
+        let content = access(&service, "3").await;
+        assert_eq!(content, "before1before2before3");
     }
 }

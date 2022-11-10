@@ -37,7 +37,7 @@ impl Depot {
         K: Into<String>,
         V: Any + Send + Sync,
     {
-        self.insert(key.into(), Box::new(value));
+        self.map.insert(key.into(), Box::new(value));
         self
     }
     pub fn contains_key(&self, key: &str) -> bool {
@@ -72,7 +72,63 @@ impl fmt::Debug for Depot {
     }
 }
 
-// TODO: depot.rs test mod
-// #[cfg(test)]
-// mod test {
-// }
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::prelude::*;
+    use crate::test::{ResponseExt, TestClient};
+    #[test]
+    fn test_depot() {
+        let mut depot = Depot::with_capacity(6);
+        assert!(depot.capacity() >= 6);
+
+        depot.insert("one", "ONE".to_owned());
+        assert!(depot.contains_key("one"));
+
+        assert_eq!(depot.get::<String>("one").unwrap(), &"ONE".to_owned());
+        assert_eq!(
+            depot.get_mut::<String>("one").unwrap(),
+            &mut "ONE".to_owned()
+        );
+    }
+
+    #[test]
+    fn test_transfer() {
+        let mut depot = Depot::with_capacity(6);
+        depot.insert("one", "ONE".to_owned());
+
+        let depot = depot.transfer();
+        assert_eq!(depot.get::<String>("one").unwrap(), &"ONE".to_owned());
+    }
+    #[tokio::test]
+    #[ignore]
+    async fn test_middleware_use_depot() {
+        #[handler(internal)]
+        async fn set_user(
+            req: &mut Request,
+            depot: &mut Depot,
+            res: &mut Response,
+            ctrl: &mut FlowCtrl,
+        ) {
+            depot.insert("user", "client");
+            ctrl.call_next(req, depot, res).await;
+        }
+        #[handler(internal)]
+        async fn hello_world(depot: &mut Depot) -> String {
+            format!(
+                "Hello {}",
+                depot.get::<&str>("user").copied().unwrap_or_default()
+            )
+        }
+        let router = Router::new().hoop(set_user).handle(hello_world);
+        let service = Service::new(router);
+
+        let content = TestClient::get("http://127.0.0.1:7890")
+            .send(&service)
+            .await
+            .take_string()
+            .await
+            .unwrap();
+        assert_eq!(content, "Hello client");
+    }
+}
