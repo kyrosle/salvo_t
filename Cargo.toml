@@ -4,10 +4,11 @@ version = "0.1.0"
 edition = "2021"
 
 [workspace]
-members = ["macros"]
+members = ["macros", "text_diff"]
 
 [dependencies]
 salvo-macros = { version = "0.37.1", path = "macros" }
+text_diff = { version = "0.1.0", path = "text_diff" }
 anyhow = "1.0.66"
 async-compression = { version = "0.3.15", features = [
     "gzip",

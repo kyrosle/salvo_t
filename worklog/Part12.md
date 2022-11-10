@@ -749,3 +749,37 @@ impl salvo::Handler for Hello {
 ```
 
 ## `test_extract_simple`
+left: 
+```rust
+#[extract(default_source(from = "body"))]
+struct BadMan<'a> {
+    #[extract(source(from = "query"))]
+    id: i64,
+    username: String,
+}
+```
+right:
+```rust
+#[allow(non_upper_case_globals)]
+static __salvo_extract_BadMan: salvo::__private::once_cell::sync::Lazy<salvo::extract::Metadata> = salvo::__private::once_cell::sync::Lazy::new(|| {
+    let mut metadata = salvo::extract::Metadata::new("BadMan");
+    metadata = metadata.add_default_source(salvo::extract::metadata::Source::new(
+        salvo::extract::metadata::SourceFrom::Body,
+        salvo::extract::metadata::SourceFormat::MultiMap
+    ));
+    let mut field = salvo::extract::metadata::Field::new("id");
+    field = field.add_source(salvo::extract::metadata::Source::new(
+        salvo::extract::metadata::SourceFrom::Query,
+        salvo::extract::metadata::SourceFormat::MultiMap
+    ));
+    metadata = metadata.add_field(field);
+    let mut field = salvo::extract::metadata::Field::new("username");
+    metadata = metadata.add_field(field);
+    metadata
+});
+impl<'a> salvo::extract::Extractible<'a> for BadMan<'a> {
+    fn metadata() -> &'static salvo::extract::Metadata {
+        &*__salvo_extract_BadMan
+    }
+}
+```

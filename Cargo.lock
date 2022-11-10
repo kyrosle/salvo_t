@@ -771,6 +771,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "tempfile",
+ "text_diff",
  "textnonce",
  "thiserror",
  "tokio",
@@ -889,6 +890,10 @@ dependencies = [
  "remove_dir_all",
  "winapi",
 ]
+
+[[package]]
+name = "text_diff"
+version = "0.1.0"
 
 [[package]]
 name = "textnonce"

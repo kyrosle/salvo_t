@@ -129,13 +129,13 @@ fn metadata_source(salvo: &Ident, source: &RawSource) -> TokenStream {
         Ident::new(&source.format.to_pascal_case(), Span::call_site())
     };
     let from = quote! {
-        #salvo::extract::metadata::SourceFormat::#from
+        #salvo::extract::metadata::SourceFrom::#from
     };
     let format = quote! {
         #salvo::extract::metadata::SourceFormat::#format
     };
     quote! {
-        #salvo::extract::metadata::new(#from, #format)
+        #salvo::extract::metadata::Source::new(#from, #format)
     }
 }
 
@@ -252,7 +252,9 @@ pub(crate) fn generate(args: DeriveInput) -> Result<TokenStream, Error> {
             #(
                 #fields
             )*
+            metadata
         });
+        #imp_code
     };
     Ok(code)
 }
@@ -354,16 +356,16 @@ fn parse_sources(attrs: &[Attribute], key: &str) -> darling::Result<Vec<RawSourc
                             )));
                         }
 
-                        if !["multimap", "json", "request"].contains(&source.from.as_str()) {
+                        if !["multimap", "json", "request"].contains(&source.format.as_str()) {
                             return Err(darling::Error::custom(format!(
-                                "source from is invalid: {}",
-                                source.from
+                                "source format is invalid: {}",
+                                source.format
                             )));
                         }
 
                         if source.from == "request" && source.format != "request" {
                             return Err(darling::Error::custom(
-                                "source format mut be `request` sources",
+                                "source format must be `request` for `request` sources",
                             ));
                         }
                         sources.push(source);

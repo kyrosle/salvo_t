@@ -3,7 +3,7 @@ mod handler;
 mod shared;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, AttributeArgs, Item};
+use syn::{parse_macro_input, AttributeArgs, Item, DeriveInput};
 
 #[proc_macro_attribute]
 pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -18,11 +18,16 @@ pub fn handler(args: TokenStream, input: TokenStream) -> TokenStream {
 
 #[proc_macro_derive(Extractible, attributes(extract))]
 pub fn derive_extractible(input: TokenStream) -> TokenStream {
-    todo!()
+    let args = parse_macro_input!(input as DeriveInput);
+    match extract::generate(args) {
+        Ok(stream) => stream.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
 }
 
 #[cfg(test)]
 mod tests {
+
     use quote::quote;
     use syn::parse2;
 
@@ -166,5 +171,34 @@ mod tests {
                 username: String,
             }
         };
+
+        let item = parse2(input).unwrap();
+
+        let right = quote! { 
+            #[allow(non_upper_case_globals)]
+            static __salvo_extract_BadMan: salvo::__private::once_cell::sync::Lazy<salvo::extract::Metadata> = salvo::__private::once_cell::sync::Lazy::new(|| {
+                let mut metadata = salvo::extract::Metadata::new("BadMan");
+                metadata = metadata.add_default_source(salvo::extract::metadata::Source::new(
+                    salvo::extract::metadata::SourceFrom::Body,
+                    salvo::extract::metadata::SourceFormat::MultiMap
+                ));
+                let mut field = salvo::extract::metadata::Field::new("id");
+                field = field.add_source(salvo::extract::metadata::Source::new(
+                    salvo::extract::metadata::SourceFrom::Query,
+                    salvo::extract::metadata::SourceFormat::MultiMap
+                ));
+                metadata = metadata.add_field(field);
+                let mut field = salvo::extract::metadata::Field::new("username");
+                metadata = metadata.add_field(field);
+                metadata
+            });
+            impl<'a> salvo::extract::Extractible<'a> for BadMan<'a> {
+                fn metadata() -> &'static salvo::extract::Metadata {
+                    &*__salvo_extract_BadMan
+                }
+            }
+        };
+
+        assert_eq!(extract::generate(item).unwrap().to_string(), right.to_string());
     }
 }
