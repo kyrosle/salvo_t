@@ -1,4 +1,7 @@
-use std::cmp::{max, min};
+use std::{
+    cmp::{max, min},
+    ptr::eq,
+};
 #[derive(Debug)]
 struct Message {
     diff_pos: usize,
@@ -8,12 +11,17 @@ struct Message {
 }
 
 fn diff(left: &mut String, right: &mut String) -> Message {
-    let mut iter = left.chars().zip(right.chars()).enumerate();
+    let left_c = left.clone();
+    let right_c = right.clone();
+    let iter = left_c.chars().zip(right_c.chars()).into_iter().enumerate();
     for (pos, (l, r)) in iter {
-        if l == r {
+        if l.eq(&r) {
             continue;
         } else {
-            left. = '!';
+            println!("pos: {} left : {:?} || right : {:?}", pos, l, r);
+            left.insert(pos - 1, '!');
+            right.insert(pos - 1, '!');
+
             return Message {
                 diff_pos: pos,
                 status: false,

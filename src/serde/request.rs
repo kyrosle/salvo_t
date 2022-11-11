@@ -370,28 +370,29 @@ where
 #[cfg(test)]
 mod tests {
     use crate::macros::Extractible;
-    use serde::Deserialize;
     use crate::test::TestClient;
+    use serde::Deserialize;
 
-    // #[tokio::test]
-    // async fn test_de_request_from_query() {
-    //     #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
-    //     #[extract(internal, default_source(from = "query"))]
-    //     struct RequestData {
-    //         q1: String,
-    //         q2: i64,
-    //     }
-    //     let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
-    //         .query("q1", "q1v")
-    //         .query("q2", "23")
-    //         .build();
-    //     let data: RequestData = req.extract().await.unwrap();
-    //     assert_eq!(
-    //         data,
-    //         RequestData {
-    //             q1: "q1v".to_string(),
-    //             q2: 23
-    //         }
-    //     );
-    // }
+    #[tokio::test]
+    #[ignore]
+    async fn test_de_request_from_query() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "query"))]
+        struct RequestData {
+            q1: String,
+            q2: i64,
+        }
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .query("q1", "q1v")
+            .query("q2", "23")
+            .build();
+        let data: RequestData = req.extract().await.unwrap();
+        // assert_eq!(
+        //     data,
+        //     RequestData {
+        //         q1: "q1v".to_string(),
+        //         q2: 23
+        //     }
+        // );
+    }
 }

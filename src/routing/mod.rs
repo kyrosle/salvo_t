@@ -161,7 +161,6 @@ mod tests {
     use crate::test::{ResponseExt, TestClient};
 
     #[tokio::test]
-    #[ignore]
     async fn test_custom_filter() {
         #[handler(internal)]
         async fn hello_world() -> &'static str {
@@ -185,7 +184,9 @@ mod tests {
                 .unwrap()
         }
 
-        assert!(access(&service, "127.0.0.1").await.contains("404: Not Found"));
+        assert!(access(&service, "127.0.0.1")
+            .await
+            .contains("404: Not Found"));
         assert_eq!(access(&service, "localhost").await, "Hello World");
     }
 }

@@ -48,7 +48,7 @@ where
     F: Fn(&mut Request, &mut PathState) -> bool + Send + Sync + 'static,
 {
     fn filter(&self, req: &mut Request, state: &mut PathState) -> bool {
-        if self.filter(req, state) {
+        if self.filter.filter(req, state) {
             true
         } else {
             (self.callback)(req, state)

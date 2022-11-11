@@ -249,7 +249,7 @@ where
                 if max.is_empty() {
                     (min, None)
                 } else {
-                    let trimmed_max = max.trim_end_matches('=');
+                    let trimmed_max = max.trim_start_matches('=');
                     let max = if trimmed_max == max {
                         let max = trimmed_max
                             .parse::<usize>()
@@ -296,8 +296,8 @@ impl PathWisp for CombWisp {
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct NameWisp(String);
-impl PathWisp for NameWisp {
+struct NamedWisp(String);
+impl PathWisp for NamedWisp {
     fn detect(&self, state: &mut PathState) -> bool {
         if self.0.starts_with('*') {
             let rest = state.all_rest().unwrap_or_default();
@@ -557,7 +557,7 @@ impl PathParser {
                         wisps.push(Box::new(RegexWisp::new(name, regex)));
                     }
                 } else if ch == '>' {
-                    wisps.push(Box::new(NameWisp(name)));
+                    wisps.push(Box::new(NamedWisp(name)));
                     if !self.peek(false).map(|c| c == '/').unwrap_or(true) {
                         return Err(format!(
                             "named part must be the last one in current segment, expect '/' or end, but found {:?} at offset: {}" ,
@@ -681,6 +681,14 @@ impl PathFilter {
         let mut builders = WISP_BUILDERS.write();
         builders.insert(name.into(), Arc::new(Box::new(builder)));
     }
+
+    pub fn register_wisp_regex(name: impl Into<String>, regex: Regex) {
+        let mut builders = WISP_BUILDERS.write();
+        builders.insert(
+            name.into(),
+            Arc::new(Box::new(RegexWispBuilder::new(regex))),
+        );
+    }
     pub fn detect(&self, state: &mut PathState) -> bool {
         let original_cursor = state.cursor;
         for ps in &self.path_wisps {
@@ -699,6 +707,267 @@ impl PathFilter {
     }
 }
 
-// TODO: path.rs tests
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::PathParser;
+    use crate::routing::{PathFilter, PathState};
+
+    #[test]
+    fn test_parse_empty() {
+        let segments = PathParser::new("").parse().unwrap();
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_parse_root() {
+        let segments = PathParser::new("/").parse().unwrap();
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_parse_rest_without_case() {
+        let segments = PathParser::new("/hello/<*>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[ConstWisp("hello"), NamedWisp("*")]"#
+        );
+    }
+
+    #[test]
+    fn test_parse_single_const() {
+        let segments = PathParser::new("/hello").parse().unwrap();
+        assert_eq!(format!("{:?}", segments), r#"[ConstWisp("hello")]"#);
+    }
+
+    #[test]
+    fn test_parse_multi_const() {
+        let segments = PathParser::new("/hello/world").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[ConstWisp("hello"), ConstWisp("world")]"#
+        )
+    }
+
+    #[test]
+    fn test_parse_single_regex() {
+        let segments = PathParser::new(r"/<abc:/\d+/>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[RegexWisp { name: "abc", regex: \d+ }]"#
+        );
+    }
+    #[test]
+    fn test_parse_wildcard_regex() {
+        let segments = PathParser::new(r"/<abc:/\d+/.+/>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[RegexWisp { name: "abc", regex: \d+/.+ }]"#
+        );
+    }
+    #[test]
+    fn test_parse_single_regex_with_prefix() {
+        let segments = PathParser::new(r"/prefix_<abc:/\d+/>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("prefix_"), RegexWisp { name: "abc", regex: \d+ }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_single_regex_with_suffix() {
+        let segments = PathParser::new(r"/<abc:/\d+/>_suffix.png").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([RegexWisp { name: "abc", regex: \d+ }, ConstWisp("_suffix.png")])]"#
+        );
+    }
+    #[test]
+    fn test_parse_single_regex_with_prefix_and_suffix() {
+        let segments = PathParser::new(r"/prefix<abc:/\d+/>suffix.png")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("prefix"), RegexWisp { name: "abc", regex: \d+ }, ConstWisp("suffix.png")])]"#
+        );
+    }
+    #[test]
+    fn test_parse_multi_regex() {
+        let segments = PathParser::new(r"/first<id>/prefix<abc:/\d+/>")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), NamedWisp("id")]), CombWisp([ConstWisp("prefix"), RegexWisp { name: "abc", regex: \d+ }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_multi_regex_with_prefix() {
+        let segments = PathParser::new(r"/first<id>/prefix<abc:/\d+/>")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), NamedWisp("id")]), CombWisp([ConstWisp("prefix"), RegexWisp { name: "abc", regex: \d+ }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_multi_regex_with_suffix() {
+        let segments = PathParser::new(r"/first<id:/\d+/>/prefix<abc:/\d+/>")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), RegexWisp { name: "id", regex: \d+ }]), CombWisp([ConstWisp("prefix"), RegexWisp { name: "abc", regex: \d+ }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_multi_regex_with_prefix_and_suffix() {
+        let segments = PathParser::new(r"/first<id>/prefix<abc:/\d+/>ext")
+            .parse()
+            .unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), NamedWisp("id")]), CombWisp([ConstWisp("prefix"), RegexWisp { name: "abc", regex: \d+ }, ConstWisp("ext")])]"#
+        );
+    }
+    #[test]
+    fn test_parse_rest() {
+        let segments = PathParser::new(r"/first<id>/<*rest>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), NamedWisp("id")]), NamedWisp("*rest")]"#
+        );
+    }
+    #[test]
+    fn test_parse_num0() {
+        let segments = PathParser::new(r"/first<id:num>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 1, max_width: None }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_num1() {
+        let segments = PathParser::new(r"/first<id:num(10)>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 10, max_width: None }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_num2() {
+        let segments = PathParser::new(r"/first<id:num(..10)>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 1, max_width: Some(9) }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_num3() {
+        let segments = PathParser::new(r"/first<id:num(3..10)>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 3, max_width: Some(9) }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_num4() {
+        let segments = PathParser::new(r"/first<id:num[3..]>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 3, max_width: None }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_num5() {
+        let segments = PathParser::new(r"/first<id:num(3..=10)>").parse().unwrap();
+        assert_eq!(
+            format!("{:?}", segments),
+            r#"[CombWisp([ConstWisp("first"), CharWisp { name: "id", min_width: 3, max_width: Some(10) }])]"#
+        );
+    }
+    #[test]
+    fn test_parse_named_failed1() {
+        assert!(PathParser::new(r"/first<id>ext2").parse().is_err());
+    }
+
+    #[test]
+    fn test_parse_rest_failed1() {
+        assert!(PathParser::new(r"/first<id>ext2<*rest>").parse().is_err());
+    }
+    #[test]
+    fn test_parse_rest_failed2() {
+        assert!(PathParser::new(r"/first<id>ext2/<*rest>wefwe")
+            .parse()
+            .is_err());
+    }
+    #[test]
+    fn test_parse_many_slashes() {
+        let wisps = PathParser::new(r"/first///second//<id>").parse().unwrap();
+        assert_eq!(wisps.len(), 3);
+    }
+
+    #[test]
+    fn test_detect_consts() {
+        let filter = PathFilter::new("/hello/world");
+        let mut state = PathState::new("hello/world");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_consts0() {
+        let filter = PathFilter::new("/hello/world/");
+        let mut state = PathState::new("hello/world");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_consts1() {
+        let filter = PathFilter::new("/hello/world");
+        let mut state = PathState::new("hello/world/");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_consts2() {
+        let filter = PathFilter::new("/hello/world2");
+        let mut state = PathState::new("hello/world");
+        assert!(!filter.detect(&mut state));
+    }
+
+    #[test]
+    fn test_detect_const_and_named() {
+        let filter = PathFilter::new("/hello/world<id>");
+        let mut state = PathState::new("hello/worldabc");
+        filter.detect(&mut state);
+    }
+
+    #[test]
+    fn test_detect_many() {
+        let filter = PathFilter::new("/users/<id>/emails");
+        let mut state = PathState::new("/users/29/emails");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_many_slashes() {
+        let filter = PathFilter::new("/users/<id>/emails");
+        let mut state = PathState::new("/users///29//emails");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_named_regex() {
+        PathFilter::register_wisp_regex(
+            "guid",
+            regex::Regex::new("[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}").unwrap(),
+        );
+        let filter = PathFilter::new("/users/<id:guid>");
+        let mut state = PathState::new("/users/123e4567-h89b-12d3-a456-9AC7CBDCEE52");
+        assert!(!filter.detect(&mut state));
+
+        let mut state = PathState::new("/users/123e4567-e89b-12d3-a456-9AC7CBDCEE52");
+        assert!(filter.detect(&mut state));
+    }
+    #[test]
+    fn test_detect_wildcard() {
+        let filter = PathFilter::new("/users/<id>/<**rest>");
+        let mut state = PathState::new("/users/12/facebook/insights/23");
+        assert!(filter.detect(&mut state));
+    }
+}

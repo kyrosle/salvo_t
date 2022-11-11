@@ -101,7 +101,6 @@ mod test {
         assert_eq!(depot.get::<String>("one").unwrap(), &"ONE".to_owned());
     }
     #[tokio::test]
-    #[ignore]
     async fn test_middleware_use_depot() {
         #[handler(internal)]
         async fn set_user(

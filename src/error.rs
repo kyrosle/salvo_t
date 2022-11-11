@@ -113,3 +113,31 @@ impl Writer for anyhow::Error {
         res.set_status_error(StatusError::internal_server_error());
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::http::*;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_anyhow() {
+        let mut req = Request::default();
+        let mut res = Response::default();
+        let mut depot = Depot::new();
+        let e: anyhow::Error = anyhow::anyhow!("detail message");
+        e.write(&mut req, &mut depot, &mut res).await;
+        assert_eq!(res.status_code(), Some(StatusCode::INTERNAL_SERVER_ERROR));
+    }
+
+    #[tokio::test]
+    async fn test_error() {
+        let mut req = Request::default();
+        let mut res = Response::default();
+        let mut depot = Depot::new();
+
+        let e = Error::Other("detail message".into());
+        e.write(&mut req, &mut depot, &mut res).await;
+        assert_eq!(res.status_code(), Some(StatusCode::INTERNAL_SERVER_ERROR));
+    }
+}

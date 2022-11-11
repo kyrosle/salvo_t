@@ -1,31 +1,25 @@
-use std::{collections::HashMap, fmt};
+use std::collections::HashMap;
+use std::fmt::{self, Formatter};
 
 use cookie::{Cookie, CookieJar};
-use hyper::{
-    header::{self, AsHeaderName, IntoHeaderName},
-    http::{Extensions, HeaderValue},
-    HeaderMap, Method, Uri, Version,
-};
+use http::header::{self, AsHeaderName, HeaderMap, HeaderValue, IntoHeaderName};
+use http::method::Method;
+pub use http::request::Parts;
+use hyper::http::version::Version;
+use hyper::http::{self, Extensions, Uri};
+pub use hyper::Body as ReqBody;
 use multimap::MultiMap;
 use once_cell::sync::OnceCell;
-use serde::Deserialize;
+use serde::de::Deserialize;
 
-use crate::{
-    extract::{Extractible, Metadata},
-    http::Mime,
-    serde::{from_str_map, from_str_multi_map, request::from_request},
+use crate::addr::SocketAddr;
+use crate::extract::{Extractible, Metadata};
+use crate::http::form::{FilePart, FormData};
+use crate::http::{Mime, ParseError};
+use crate::serde::{
+    from_request, from_str_map, from_str_multi_map, from_str_multi_val, from_str_val,
 };
-
-use crate::{addr::SocketAddr, error::Error};
-
-use crate::serde::{from_str_multi_val, from_str_val};
-
-use super::{
-    errors::ParseError,
-    form::{FilePart, FormData},
-};
-
-pub use hyper::Body as ReqBody;
+use crate::Error;
 
 pub struct Request {
     uri: Uri,
@@ -48,8 +42,14 @@ pub struct Request {
 
 impl fmt::Debug for Request {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // f.debug_struct("Request").field("method", self.method())
-        Ok(())
+        f.debug_struct("Request")
+            .field("method", self.method())
+            .field("uri", self.uri())
+            .field("version", &self.version())
+            .field("headers", self.headers())
+            // omits Extensions because not useful
+            .field("body", &self.body())
+            .finish()
     }
 }
 
@@ -136,6 +136,9 @@ impl Request {
     }
     pub fn headers(&self) -> &HeaderMap {
         &self.headers
+    }
+    pub fn version(&self) -> Version {
+        self.version
     }
     pub fn headers_mut(&mut self) -> &mut HeaderMap {
         &mut self.headers
@@ -485,15 +488,24 @@ mod tests {
             name: String,
         }
         let mut req = TestClient::get("http://127.0.0.1:7878/hello")
-            .json(&User { name: "jobs".into() })
+            .json(&User {
+                name: "jobs".into(),
+            })
             .build();
-        assert_eq!(req.parse_json::<User>().await.unwrap(), User { name: "jobs".into() });
+        assert_eq!(
+            req.parse_json::<User>().await.unwrap(),
+            User {
+                name: "jobs".into()
+            }
+        );
     }
 
     #[tokio::test]
     async fn test_query() {
-        let req = TestClient::get("http://127.0.0.1:7979/hello?name=rust&name=25&name=a&name=2&weapons=98&weapons=gun")
-            .build();
+        let req = TestClient::get(
+            "http://127.0.0.1:7979/hello?name=rust&name=25&name=a&name=2&weapons=98&weapons=gun",
+        )
+        .build();
         assert_eq!(req.queries().len(), 2);
         assert_eq!(req.query::<String>("name").unwrap(), "rust");
         assert_eq!(req.query::<&str>("name").unwrap(), "rust");
@@ -538,4 +550,3 @@ file content\r\n\
         assert_eq!(files[0].name().unwrap(), "err.txt");
     }
 }
-

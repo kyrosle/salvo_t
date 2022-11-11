@@ -1,14 +1,16 @@
-pub mod request;
-use core::hash::Hash;
-pub(crate) use serde::de::value::Error as ValError;
-use serde::{
-    de::{
-        value::{MapDeserializer, SeqDeserializer},
-        EnumAccess, Error as DeError, IntoDeserializer, VariantAccess, Visitor,
-    },
-    forward_to_deserialize_any, Deserialize, Deserializer,
-};
 use std::borrow::Cow;
+use std::hash::Hash;
+use std::iter::Iterator;
+
+pub(crate) use serde::de::value::{Error as ValError, MapDeserializer, SeqDeserializer};
+use serde::de::{
+    Deserialize, DeserializeSeed, Deserializer, EnumAccess, Error as DeError, IntoDeserializer,
+    VariantAccess, Visitor,
+};
+use serde::forward_to_deserialize_any;
+
+mod request;
+pub(crate) use request::from_request;
 
 macro_rules! forward_cow_parsed_value {
     ($($ty:ident => $method:ident,)*) => {
