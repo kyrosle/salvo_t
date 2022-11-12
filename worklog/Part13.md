@@ -132,6 +132,10 @@ __add module__ : `reqwest`
 - [ ] src\listener\rustls.rs
 - [ ] src\listener\unix.rs
 
+---
+Finished test [unoptimized + debuginfo] target(s) in 0.35s
+Starting 95 tests across 2 binaries (1 skipped)
+---
 PASS [   0.431s] salvo_t addr::tests::test_addr_ipv4
 PASS [   0.375s] salvo_t addr::tests::test_addr_ipv6
 PASS [   0.322s] salvo_t catcher::tests::test_custom_catcher
@@ -227,3 +231,5 @@ PASS [   0.162s] salvo_t writer::text::tests::test_write_plain_text
 PASS [   0.110s] salvo_t writer::text::tests::test_write_str
 PASS [   0.063s] salvo_t writer::text::tests::test_write_string
 PASS [   5.105s] salvo_t server::tests::test_server
+---
+Summary [   9.713s] 95 tests run: 95 passed (24 leaky), 1 skipped
