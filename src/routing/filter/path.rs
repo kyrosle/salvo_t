@@ -1,19 +1,13 @@
-use std::{
-    collections::HashMap,
-    f32::consts::E,
-    fmt::{self, format},
-    sync::Arc,
-    vec,
-};
+use std::collections::HashMap;
+use std::fmt::{self, Formatter};
+use std::sync::Arc;
 
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use regex::Regex;
 
-use crate::routing::PathState;
-
-use super::Filter;
-
+use crate::http::Request;
+use crate::routing::{Filter, PathState};
 pub trait PathWisp: Send + Sync + 'static + fmt::Debug {
     fn type_id(&self) -> std::any::TypeId {
         std::any::TypeId::of::<Self>()
@@ -138,7 +132,7 @@ struct CharWisp<C> {
     max_width: Option<usize>,
 }
 impl<C> fmt::Debug for CharWisp<C> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "CharWisp {{ name: {:?}, min_width: {:?}, max_width: {:?} }}",
@@ -643,13 +637,13 @@ pub struct PathFilter {
 }
 
 impl fmt::Debug for PathFilter {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "path:{}", &self.raw_value)
     }
 }
 
 impl Filter for PathFilter {
-    fn filter(&self, _req: &mut crate::http::request::Request, state: &mut PathState) -> bool {
+    fn filter(&self, _req: &mut Request, state: &mut PathState) -> bool {
         self.detect(state)
     }
 }

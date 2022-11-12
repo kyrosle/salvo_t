@@ -17,7 +17,7 @@ where
             Ok(bytes) => {
                 res.headers_mut().insert(
                     CONTENT_TYPE,
-                    HeaderValue::from_static("application/json;charset=UTF-8"),
+                    HeaderValue::from_static("application/json; charset=utf-8"),
                 );
                 res.write_body(bytes).ok();
             }
@@ -36,7 +36,6 @@ mod tests {
     use crate::test::{ResponseExt, TestClient};
 
     #[tokio::test]
-    #[ignore]
     async fn test_write_json_content() {
         #[derive(Serialize, Debug)]
         struct User {

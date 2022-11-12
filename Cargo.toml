@@ -51,3 +51,4 @@ tokio = { version = "1.21.2", features = ["macros", "rt-multi-thread", "fs"] }
 tokio-stream = "0.1.11"
 tracing = "0.1.37"
 url = "2.3.1"
+reqwest = "0.11.12"

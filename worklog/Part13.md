@@ -21,8 +21,6 @@ unit test tool :
 * test_guess_accept_mime() 
 - [x] src\http\errors\parse_error.rs
 * test_writer_error()
-
-- [ ] src\service.rs
 - [x] src\depot.rs
 * test_depot
 * test_transfer
@@ -31,8 +29,6 @@ unit test tool :
 * test_handle_error
 * handler_custom
 * test_custom_catcher
-
-
 - [x] src\serde\mod.rs
 * test_de_str_map() 
 * test_de_str_multi_map()
@@ -41,7 +37,6 @@ unit test tool :
 * test_parse_source_format() 
 * test_parse_rename_rule() 
 * test_rename_rule()
-
 - [x] src\routing\filter\path.rs
 * test_parse_empty
 * test_parse_root
@@ -77,7 +72,6 @@ unit test tool :
 * test_detect_many_slashes
 * test_detect_named_regex
 * test_detect_wildcard
-
 - [x] src\routing\filter\mod.rs
 * test_methods
 * test_opts
@@ -99,20 +93,41 @@ unit test tool :
 * test_router_detect12
 * test_router_detect13
 * test_router_detect_path_encoded
-- [ ] src\serde\request.rs
-- [ ] src\writer\json.rs
-
-- [ ] src\writer\mod.rs
-- [ ] src\writer\text.rs
-
+- [x] src\writer\json.rs
+* test_write_json_content
+- [x] src\writer\mod.rs
+* test_write_str
+* test_write_string
+- [x] src\writer\text.rs
+* test_write_str
+* test_write_string
+* test_write_plain_text
+* test_write_html_text
 - [x] src\error.rs
 * test_anyhow()
 * test_error()
-- [ ] src\server.rs
-- [ ] src\listener\mod.rs
+- [x] src\listener\mod.rs
+* test_tcp_listener
+* test_joined_listener
+- [x] src\serde\request.rs
+* test_de_request_from_query
+* test_de_request_with_lifetime
+* test_de_request_with_rename
+* test_de_request_with_rename_all
+* test_de_request_with_multi_sources
+* test_de_request_with_json_vec
+* test_de_request_with_json_bool
+* test_de_request_with_json_str
+- [x] src\service.rs
+* test_service()
+__add module__ : `reqwest`
+- [x] src\server.rs
+* test_server()
+
+
+// none
+- [ ] src\fs\mod.rs:
 - [ ] src\listener\native_tls.rs
 - [ ] src\listener\openssl.rs
 - [ ] src\listener\rustls.rs
 - [ ] src\listener\unix.rs
-- [ ] src\lib.rs:
-- [ ] src\fs\mod.rs:

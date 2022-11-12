@@ -57,3 +57,12 @@ pub mod __private {
     pub use tracing;
 }
 
+pub trait PrintSelf
+where
+    Self: std::fmt::Debug + Sized,
+{
+    fn print_self(self) -> Self {
+        println!("{:#?}", self);
+        self
+    }
+}

@@ -11,7 +11,7 @@ use hyper::{
 
 use std::error::Error as StdError;
 
-use crate::{error::Error, writer::Piece};
+use crate::{error::Error, writer::Piece, PrintSelf};
 
 use super::errors::StatusError;
 
@@ -90,6 +90,8 @@ pub struct Response {
     pub(crate) cookies: CookieJar,
     pub(crate) body: ResBody,
 }
+
+impl PrintSelf for Response {}
 
 impl Default for Response {
     fn default() -> Self {

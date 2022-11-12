@@ -165,6 +165,10 @@ impl Field {
         self.aliases = aliases;
         self
     }
+    pub fn add_source(mut self, source: Source) -> Self {
+        self.sources.push(source);
+        self
+    }
     pub fn add_alias(mut self, alias: &'static str) -> Self {
         self.aliases.push(alias);
         self

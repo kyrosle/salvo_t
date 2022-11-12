@@ -1,19 +1,14 @@
-use std::{
-    io::ErrorKind,
-    net::{IpAddr, ToSocketAddrs},
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::io::{self, Error as IoError, ErrorKind};
+use std::net::{IpAddr, SocketAddr as StdSocketAddr, ToSocketAddrs};
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
-use hyper::server::{
-    accept::Accept,
-    conn::{AddrIncoming, AddrStream},
-};
-use tokio::io::{AsyncRead, AsyncWrite};
+use hyper::server::accept::Accept;
+use hyper::server::conn::AddrIncoming;
+use hyper::server::conn::AddrStream;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use std::io::Error as IoError;
-use std::net::SocketAddr as StdSocketAddr;
-
+use crate::addr::SocketAddr;
 use crate::transport::Transport;
 
 pub trait Listener: Accept {
@@ -240,5 +235,68 @@ impl<I: Into<IpAddr>> IntoAddrIncoming for (I, u16) {
         let mut incoming = AddrIncoming::bind(&self.into()).expect("failed to create AddrIncoming");
         incoming.set_nodelay(true);
         incoming
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use futures_util::{Stream, StreamExt};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpStream;
+
+    use super::*;
+
+    impl Stream for TcpListener {
+        type Item = Result<AddrStream, IoError>;
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.poll_accept(cx)
+        }
+    }
+
+    impl<A, B> Stream for JoinedListener<A, B>
+    where
+        A: Accept + Send + Unpin + 'static,
+        B: Accept + Send + Unpin + 'static,
+        A::Conn: Transport,
+        B::Conn: Transport,
+    {
+        type Item = Result<JoinedStream<A::Conn, B::Conn>, IoError>;
+        fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+            self.poll_accept(cx)
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tcp_listener() {
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 6878));
+
+        let mut listener = TcpListener::bind(addr);
+        tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_i32(150).await.unwrap();
+        });
+
+        let mut stream = listener.next().await.unwrap().unwrap();
+        assert_eq!(stream.read_i32().await.unwrap(), 150);
+    }
+
+    #[tokio::test]
+    async fn test_joined_listener() {
+        let addr1 = std::net::SocketAddr::from(([127, 0, 0, 1], 6978));
+        let addr2 = std::net::SocketAddr::from(([127, 0, 0, 1], 6979));
+
+        let mut listener = TcpListener::bind(addr1).join(TcpListener::bind(addr2));
+        tokio::spawn(async move {
+            let mut stream = TcpStream::connect(addr1).await.unwrap();
+            stream.write_i32(50).await.unwrap();
+
+            let mut stream = TcpStream::connect(addr2).await.unwrap();
+            stream.write_i32(100).await.unwrap();
+        });
+        let mut stream = listener.next().await.unwrap().unwrap();
+        let first = stream.read_i32().await.unwrap();
+        let mut stream = listener.next().await.unwrap().unwrap();
+        let second = stream.read_i32().await.unwrap();
+        assert_eq!(first + second, 150);
     }
 }

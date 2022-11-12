@@ -7,8 +7,11 @@ use hyper::http::header::{self, HeaderMap, HeaderValue, IntoHeaderName};
 use hyper::{Body, Method};
 use url::Url;
 
-use crate::{async_trait, Depot, Error, FlowCtrl, Handler, Request, Response, Router, Service};
+use crate::{
+    async_trait, Depot, Error, FlowCtrl, Handler, PrintSelf, Request, Response, Router, Service,
+};
 
+#[derive(Debug)]
 pub struct RequestBuilder {
     url: Url,
     method: Method,
@@ -16,6 +19,7 @@ pub struct RequestBuilder {
     // params: HeaderMap,
     body: Body,
 }
+impl PrintSelf for RequestBuilder {}
 
 impl RequestBuilder {
     pub fn new<U>(url: U, method: Method) -> Self
@@ -172,7 +176,8 @@ impl RequestBuilder {
     }
 
     pub async fn send(self, target: impl SendTarget) -> Response {
-        let mut response = target.call(self.build()).await;
+        let request = self.build();
+        let mut response = target.call(request).await;
         {
             let values = response
                 .cookies
@@ -195,7 +200,7 @@ pub trait SendTarget {
 #[async_trait]
 impl SendTarget for &Service {
     async fn call(self, req: Request) -> Response {
-        self.handler(req).await
+        self.handle(req).await
     }
 }
 
@@ -211,7 +216,7 @@ impl SendTarget for Router {
 impl SendTarget for Arc<Router> {
     async fn call(self, req: Request) -> Response {
         let srv = Service::new(self);
-        srv.handler(req).await
+        srv.handle(req).await
     }
 }
 

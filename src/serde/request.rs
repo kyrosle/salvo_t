@@ -155,7 +155,7 @@ impl<'de> RequestDeserializer<'de> {
                         return Some(Cow::from(field.name));
                     }
                     SourceFrom::Param => {
-                        let mut value = self.params.get(&*field.name);
+                        let mut value = self.params.get(&*field_name);
                         if value.is_none() {
                             for alias in &field.aliases {
                                 value = self.params.get(*alias);
@@ -212,7 +212,7 @@ impl<'de> RequestDeserializer<'de> {
                     }
                     SourceFrom::Cookie => {
                         let mut value = None;
-                        if let Some(cookie) = self.cookies.get(field.name.as_ref()) {
+                        if let Some(cookie) = self.cookies.get(field_name.as_ref()) {
                             value = Some(cookie.value());
                         } else {
                             for alias in &field.aliases {
@@ -315,13 +315,13 @@ impl<'de> RequestDeserializer<'de> {
 
 impl<'de> de::Deserializer<'de> for RequestDeserializer<'de> {
     type Error = ValError;
-    fn deserialize_any<V>(self, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_any<V>(mut self, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
-        self.deserialize_any(visitor)
+        visitor.visit_map(&mut self)
     }
-    fn deserialize_tuple<V>(self, len: usize, visitor: V) -> Result<V::Value, Self::Error>
+    fn deserialize_tuple<V>(self, _len: usize, visitor: V) -> Result<V::Value, Self::Error>
     where
         V: de::Visitor<'de>,
     {
@@ -366,15 +366,14 @@ where
     req.payload().await.ok();
     Ok(T::deserialize(RequestDeserializer::new(req, metadata)?)?)
 }
-
 #[cfg(test)]
 mod tests {
+    use serde::{Deserialize, Serialize};
+
     use crate::macros::Extractible;
     use crate::test::TestClient;
-    use serde::Deserialize;
 
     #[tokio::test]
-    #[ignore]
     async fn test_de_request_from_query() {
         #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
         #[extract(internal, default_source(from = "query"))]
@@ -387,12 +386,201 @@ mod tests {
             .query("q2", "23")
             .build();
         let data: RequestData = req.extract().await.unwrap();
-        // assert_eq!(
-        //     data,
-        //     RequestData {
-        //         q1: "q1v".to_string(),
-        //         q2: 23
-        //     }
-        // );
+        assert_eq!(
+            data,
+            RequestData {
+                q1: "q1v".to_string(),
+                q2: 23
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_lifetime() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "query"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"), source(from = "query"))]
+            #[extract(source(from = "body"))]
+            q1: &'a str,
+            // #[extract(source(from = "query"))]
+            // #[serde(alias = "param2", alias = "param3")]
+            // q2: i64,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .query("q1", "q1v")
+            .query("q2", "23")
+            .build();
+        let data: RequestData<'_> = req.extract().await.unwrap();
+        assert_eq!(data, RequestData { q1: "q1v" });
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_rename() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "query"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"), source(from = "query"), rename = "abc")]
+            q1: &'a str,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .query("abc", "q1v")
+            .build();
+        let data: RequestData<'_> = req.extract().await.unwrap();
+        assert_eq!(data, RequestData { q1: "q1v" });
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_rename_all() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "query"), rename_all = "PascalCase")]
+        struct RequestData<'a> {
+            first_name: &'a str,
+            #[extract(rename = "lastName")]
+            last_name: &'a str,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .query("FirstName", "chris")
+            .query("lastName", "young")
+            .build();
+        let data: RequestData<'_> = req.extract().await.unwrap();
+        assert_eq!(
+            data,
+            RequestData {
+                first_name: "chris",
+                last_name: "young"
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_multi_sources() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "query"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"))]
+            #[extract(alias = "param1")]
+            p1: String,
+            #[extract(source(from = "param"), alias = "param2")]
+            p2: &'a str,
+            #[extract(source(from = "param"), alias = "param3")]
+            p3: usize,
+            // #[extract(source(from = "query"))]
+            q1: String,
+            // #[extract(source(from = "query"))]
+            q2: i64,
+            // #[extract(source(from = "body", format = "json"))]
+            // body: RequestBody<'a>,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .query("q1", "q1v")
+            .query("q2", "23")
+            .build();
+        req.params.insert("param1".into(), "param1v".into());
+        req.params.insert("p2".into(), "921".into());
+        req.params.insert("p3".into(), "89785".into());
+        let data: RequestData = req.extract().await.unwrap();
+        assert_eq!(
+            data,
+            RequestData {
+                p1: "param1v".into(),
+                p2: "921",
+                p3: 89785,
+                q1: "q1v".into(),
+                q2: 23
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_json_vec() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "body", format = "json"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"))]
+            p2: &'a str,
+            users: Vec<User>,
+        }
+        #[derive(Deserialize, Serialize, Eq, PartialEq, Debug)]
+        struct User {
+            id: i64,
+            name: String,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .json(&vec![
+                User {
+                    id: 1,
+                    name: "chris".into(),
+                },
+                User {
+                    id: 2,
+                    name: "young".into(),
+                },
+            ])
+            .build();
+        req.params.insert("p2".into(), "921".into());
+        let data: RequestData = req.extract().await.unwrap();
+        assert_eq!(
+            data,
+            RequestData {
+                p2: "921",
+                users: vec![
+                    User {
+                        id: 1,
+                        name: "chris".into()
+                    },
+                    User {
+                        id: 2,
+                        name: "young".into()
+                    }
+                ]
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_de_request_with_json_bool() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "body", format = "json"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"))]
+            p2: &'a str,
+            b: bool,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .json(&true)
+            .build();
+        req.params.insert("p2".into(), "921".into());
+        let data: RequestData = req.extract().await.unwrap();
+        assert_eq!(data, RequestData { p2: "921", b: true });
+    }
+    #[tokio::test]
+    async fn test_de_request_with_json_str() {
+        #[derive(Deserialize, Extractible, Eq, PartialEq, Debug)]
+        #[extract(internal, default_source(from = "body", format = "json"))]
+        struct RequestData<'a> {
+            #[extract(source(from = "param"))]
+            p2: &'a str,
+            s: &'a str,
+        }
+
+        let mut req = TestClient::get("http://127.0.0.1:7878/test/1234/param2v")
+            .json(&"abcd-good")
+            .build();
+        req.params.insert("p2".into(), "921".into());
+        let data: RequestData = req.extract().await.unwrap();
+        assert_eq!(
+            data,
+            RequestData {
+                p2: "921",
+                s: "abcd-good"
+            }
+        );
     }
 }

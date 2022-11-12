@@ -38,7 +38,9 @@ where
         S: Into<Service>,
         G: Future<Output = ()> + Send + 'static,
     {
-        self.try_serve_with_graceful_shutdown(addr, signal).await.unwrap();
+        self.try_serve_with_graceful_shutdown(addr, signal)
+            .await
+            .unwrap();
     }
 
     pub async fn try_serve_with_graceful_shutdown<S, G>(
@@ -57,5 +59,104 @@ where
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Serialize;
+
+    use crate::prelude::*;
+
+    #[tokio::test]
+    async fn test_server() {
+        #[handler(internal)]
+        async fn hello_world() -> Result<&'static str, ()> {
+            Ok("Hello World")
+        }
+        #[handler(internal)]
+        async fn json(res: &mut Response) {
+            #[derive(Serialize, Debug)]
+            struct User {
+                name: String,
+            }
+            res.render(Json(User {
+                name: "jobs".into(),
+            }));
+        }
+        let router = Router::new()
+            .get(hello_world)
+            .push(Router::with_path("json").get(json));
+        let listener = TcpListener::bind("127.0.0.1:0");
+        let addr = listener.local_addr();
+        let server = tokio::task::spawn(async {
+            Server::new(listener).serve(router).await;
+        });
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let base_url = format!("http://{}", addr);
+        let client = reqwest::Client::new();
+        let result = client
+            .get(&base_url)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert_eq!(result, "Hello World");
+
+        let client = reqwest::Client::new();
+        let result = client
+            .get(format!("{}/json", base_url))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert_eq!(result, r#"{"name":"jobs"}"#);
+
+        let result = client
+            .get(format!("{}/not_exist", base_url))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(result.contains("Not Found"));
+        let result = client
+            .get(format!("{}/not_exist", base_url))
+            .header("accept", "application/json")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(result.contains(r#""code":404"#));
+        let result = client
+            .get(format!("{}/not_exist", base_url))
+            .header("accept", "text/plain")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(result.contains("code:404"));
+        let result = client
+            .get(format!("{}/not_exist", base_url))
+            .header("accept", "application/xml")
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(result.contains("<code>404</code>"));
+        server.abort();
     }
 }

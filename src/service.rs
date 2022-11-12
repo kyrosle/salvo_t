@@ -53,7 +53,7 @@ impl Service {
     pub fn allowed_media_types(&self) -> Arc<Vec<Mime>> {
         self.allowed_media_types.clone()
     }
-    pub fn hyper_handler(&self, remote_addr: Option<SocketAddr>) -> HyperHandler {
+    pub fn hyper_handle(&self, remote_addr: Option<SocketAddr>) -> HyperHandler {
         HyperHandler {
             remote_addr,
             router: self.router.clone(),
@@ -61,8 +61,8 @@ impl Service {
             allowed_media_types: self.allowed_media_types.clone(),
         }
     }
-    pub async fn handler(&self, request: impl Into<Request>) -> Response {
-        self.hyper_handler(None).handle(request.into()).await
+    pub async fn handle(&self, request: impl Into<Request>) -> Response {
+        self.hyper_handle(None).handle(request.into()).await
     }
 }
 
@@ -150,7 +150,6 @@ impl HyperHandler {
                 }
             }
 
-            println!("--- Request ---\n{:?}\n--- --- --- ---", req);
             res
         }
     }
@@ -192,7 +191,16 @@ where
         Ok(()).into()
     }
     fn call(&mut self, req: &'t T) -> Self::Future {
-        future::ok(self.hyper_handler(req.remote_addr()))
+        future::ok(self.hyper_handle(req.remote_addr()))
+    }
+}
+
+impl<T> From<T> for Service
+where
+    T: Into<Arc<Router>>,
+{
+    fn from(router: T) -> Self {
+        Service::new(router)
     }
 }
 
@@ -257,7 +265,7 @@ mod tests {
         let router = Router::with_path("level1").hoop(before1).push(
             Router::with_hoop(before2)
                 .path("level2")
-                .push(Router::with_hoop(before3).path("level3")),
+                .push(Router::with_hoop(before3).path("hello").handle(hello)),
         );
 
         let service = Service::new(router);
